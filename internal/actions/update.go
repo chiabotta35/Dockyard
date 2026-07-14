@@ -267,7 +267,9 @@ func Update(
 			newestImage types.ImageID
 		)
 
-		if sourceContainer.IsWatchtower() && config.SkipSelfUpdate {
+		if (sourceContainer.IsWatchtower() ||
+			(config.CurrentContainerID != "" && sourceContainer.ID() == config.CurrentContainerID)) &&
+			config.SkipSelfUpdate {
 			stale = false
 			newestImage = sourceContainer.ImageID()
 		} else {
@@ -746,8 +748,11 @@ func shouldUpdateContainer(
 		return false
 	}
 
-	// Skip Watchtower self-update if SkipSelfUpdate is true
-	if config.SkipSelfUpdate && container.IsWatchtower() {
+	// Skip Watchtower self-update if SkipSelfUpdate is true.
+	// Also skip by container ID so the current container is protected even
+	// without the watchtower label (e.g. when renamed to "dockyard").
+	if config.SkipSelfUpdate && (container.IsWatchtower() ||
+		(config.CurrentContainerID != "" && container.ID() == config.CurrentContainerID)) {
 		return false
 	}
 
@@ -1421,7 +1426,8 @@ func stopStaleContainer(
 	}
 
 	// Skip Watchtower containers to avoid self-interruption.
-	if container.IsWatchtower() {
+	// Also skip by container ID for renamed containers without the label.
+	if container.IsWatchtower() || (config.CurrentContainerID != "" && container.ID() == config.CurrentContainerID) {
 		logrus.WithFields(fields).Debug("Skipping Watchtower container")
 
 		return nil

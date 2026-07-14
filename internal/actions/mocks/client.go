@@ -444,3 +444,12 @@ func (client MockClient) GetInfo(ctx context.Context) (map[string]any, error) {
 		"OSType":        "linux",
 	}, nil
 }
+
+// GetContainerLogs returns recent logs from a Docker container (mock).
+func (client MockClient) GetContainerLogs(ctx context.Context, containerID types.ContainerID, tail int) (string, error) {
+	if err := client.checkContextCancellation(ctx); err != nil {
+		return "", err
+	}
+
+	return "", nil
+}

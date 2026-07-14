@@ -122,26 +122,15 @@ func RunUpgradesOnSchedule(
 		),
 	)
 
-	// Determine if self-update should be skipped due to exposed port conflicts.
-	// When a port is configured (e.g., HTTP API), the old container holds the port
-	// while the new container tries to bind it, resulting in both containers being stopped.
-	// Ephemeral self-updates are exempt from this restriction because they remove
-	// the old container before creating the new one, avoiding port conflicts.
-	skipSelfUpdateForPorts := currentWatchtowerContainer != nil &&
-		currentWatchtowerContainer.HasExposedPorts() &&
-		!ephemeralSelfUpdate
-
 	// Define the update function to be used both for scheduled runs and immediate execution.
 	// skipWatchtowerSelfUpdate: whether to skip updating the Watchtower container itself
 	// blocking: whether to wait for the lock (true for scheduled runs, false for immediate runs)
 	updateFunc := func(skipWatchtowerSelfUpdate, blocking bool) {
-		// Skip self-update if the container has exposed ports to prevent port conflicts.
-		// This takes precedence over the skipWatchtowerSelfUpdate parameter.
-		if skipSelfUpdateForPorts {
-			skipWatchtowerSelfUpdate = true
-
-			logrus.Debug("Skipping self-update to prevent port conflict")
-		}
+		// Always skip self-updates in the scheduler. Self-updates are handled
+		// safely through the web UI's POST /api/update/self endpoint, which
+		// creates a new container before stopping the old one. The scheduler's
+		// rename-based approach causes port conflicts and process termination.
+		skipWatchtowerSelfUpdate = true
 
 		// Skip update if this is a Watchtower parent container (from self-update chain)
 		if currentWatchtowerContainer != nil {

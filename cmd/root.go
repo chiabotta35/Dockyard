@@ -564,6 +564,13 @@ func run(command *cobra.Command, args []string) {
 	// Get flags controlling execution mode and HTTP API behavior.
 	runOnce, _ := command.PersistentFlags().GetBool("run-once")
 	updateOnStart, _ := command.PersistentFlags().GetBool("update-on-start")
+	// Allow DOCKYARD_UPDATE_ON_START env var as fallback when --update-on-start
+	// isn't passed on the command line (Dockerfile CMD no longer includes it).
+	if !updateOnStart {
+		if v := os.Getenv("DOCKYARD_UPDATE_ON_START"); v == "true" {
+			updateOnStart = true
+		}
+	}
 	enableUpdateAPI, _ := command.PersistentFlags().GetBool("http-api-update")
 	enableMetricsAPI, _ := command.PersistentFlags().GetBool("http-api-metrics")
 	enableContainersAPI, _ := command.PersistentFlags().GetBool("http-api-containers")
