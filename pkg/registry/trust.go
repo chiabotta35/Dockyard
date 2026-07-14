@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/sirupsen/logrus"
@@ -109,9 +110,19 @@ func EncodedEnvAuth() (string, error) {
 	return "", errUnsetRegAuthVars
 }
 
+// dockerConfigJSON is a minimal struct for directly reading Docker config.json
+// without depending on the Docker CLI library. This is the ultimate fallback
+// when the CLI library fails to resolve credentials (e.g. missing credsStore binary).
+type dockerConfigJSON struct {
+	Auths map[string]struct {
+		Auth string `json:"auth"`
+	} `json:"auths"`
+}
+
 // EncodedConfigCredentials retrieves authentication credentials from the Docker config file.
 //
 // The Docker config must be mounted on the container.
+// Uses a three-layer fallback: Docker CLI credential store → Docker CLI auths map → direct JSON read.
 //
 // Parameters:
 //   - imageRef: Image reference string for registry lookup.
@@ -120,91 +131,118 @@ func EncodedEnvAuth() (string, error) {
 //   - string: Base64-encoded credentials string if found, empty if none.
 //   - error: Non-nil if config loading or address retrieval fails, nil on success or if no auth is found.
 func EncodedConfigCredentials(imageRef string) (string, error) {
-	// Set up logging fields for tracking.
 	fields := logrus.Fields{
 		"image_ref": imageRef,
 	}
 
-	// Get the registry server address from the image reference.
 	server, err := auth.GetRegistryAddress(imageRef)
 	if err != nil {
 		logrus.WithError(err).WithFields(fields).Debug("Failed to get registry address")
-
 		return "", fmt.Errorf("%w: %w", errFailedGetRegistryAddress, err)
 	}
 
-	// Use DOCKER_CONFIG env var or default to root directory.
 	configDir := os.Getenv("DOCKER_CONFIG")
 	if configDir == "" {
 		configDir = "/"
-
 		logrus.WithFields(fields).Debug("No DOCKER_CONFIG set, using default directory")
 	}
 
-	// Load the Docker config file from the specified directory.
-	configFile, err := dockerCliConfig.Load(configDir)
-	if err != nil {
-		logrus.WithError(err).
-			WithFields(fields).
-			WithField("config_dir", configDir).
-			Debug("Failed to load Docker config")
+	configPath := filepath.Join(configDir, "config.json")
 
-		return "", fmt.Errorf("%w: %w", errFailedLoadDockerConfig, err)
-	}
+	// Layer 1: Try Docker CLI credential store / file store.
+	configFile, cliErr := dockerCliConfig.Load(configDir)
+	if cliErr == nil {
+		credStore := CredentialsStore(*configFile)
+		credentials, _ := credStore.Get(server)
 
-	// Try the configured credentials store first (native or file-based).
-	credStore := CredentialsStore(*configFile)
-	credentials, _ := credStore.Get(server)
+		if credentials != (dockerConfig.AuthConfig{}) {
+			logrus.WithFields(fields).WithFields(logrus.Fields{
+				"server":      server,
+				"config_file": configFile.Filename,
+				"username":    credentials.Username,
+			}).Debug("Loaded auth from Docker CLI credential store")
+			return EncodeCredentials(credentials)
+		}
 
-	// If the configured store returned empty, fall back to reading the auths
-	// map directly. This handles cases where credsStore is set (e.g. "desktop")
-	// but the native binary isn't available inside the container.
-	if credentials == (dockerConfig.AuthConfig{}) {
+		// Layer 2: Docker CLI auths map direct read (handles missing credsStore binary).
 		if auths, ok := configFile.AuthConfigs[server]; ok && auths.Auth != "" {
-			decoded, err := base64.StdEncoding.DecodeString(auths.Auth)
-			if err == nil {
+			decoded, decodeErr := base64.StdEncoding.DecodeString(auths.Auth)
+			if decodeErr == nil {
 				parts := strings.SplitN(string(decoded), ":", 2)
 				if len(parts) == 2 {
-					credentials = dockerConfig.AuthConfig{
-						Username: parts[0],
-						Password: parts[1],
-					}
 					logrus.WithFields(fields).WithFields(logrus.Fields{
 						"server": server,
-					}).Debug("Fallback: read auth directly from config auths map")
+					}).Debug("Layer 2: read auth from Docker CLI auths map")
+					return EncodeCredentials(dockerConfig.AuthConfig{
+						Username: parts[0],
+						Password: parts[1],
+					})
+				}
+			}
+		}
+	} else {
+		logrus.WithError(cliErr).WithFields(fields).Debug("Docker CLI Load failed, trying direct JSON read")
+	}
+
+	// Layer 3: Direct JSON read — bypass Docker CLI entirely.
+	// This handles edge cases where the CLI library doesn't parse the config correctly.
+	if data, readErr := os.ReadFile(configPath); readErr == nil {
+		var cfg dockerConfigJSON
+		if jsonErr := json.Unmarshal(data, &cfg); jsonErr == nil {
+			// Try exact match first.
+			if entry, ok := cfg.Auths[server]; ok && entry.Auth != "" {
+				if cred, decodeErr := decodeAuthEntry(entry.Auth); decodeErr == nil {
+					logrus.WithFields(fields).WithFields(logrus.Fields{
+						"server": server,
+					}).Debug("Layer 3: read auth from direct JSON parse of config file")
+					return EncodeCredentials(cred)
+				}
+			}
+			// Try legacy URL-style keys.
+			for key, entry := range cfg.Auths {
+				if entry.Auth != "" && server == convertToHostname(key) {
+					if cred, decodeErr := decodeAuthEntry(entry.Auth); decodeErr == nil {
+						logrus.WithFields(fields).WithFields(logrus.Fields{
+							"server": server,
+							"key":    key,
+						}).Debug("Layer 3: read auth via legacy key match")
+						return EncodeCredentials(cred)
+					}
 				}
 			}
 		}
 	}
 
-	// Return empty string if no credentials are found.
-	if credentials == (dockerConfig.AuthConfig{}) {
-		logrus.WithFields(fields).WithFields(logrus.Fields{
-			"server":      server,
-			"config_file": configFile.Filename,
-		}).Debug("No credentials found in config")
-
-		return "", nil
-	}
-
-	// Log successful credential retrieval, hiding password unless in trace mode.
 	logrus.WithFields(fields).WithFields(logrus.Fields{
-		"username":    credentials.Username,
 		"server":      server,
-		"config_file": configFile.Filename,
-	}).Debug("Loaded auth credentials from config")
+		"config_path": configPath,
+	}).Debug("No credentials found after all fallback layers")
 
-	// Log password only in trace mode
-	if logrus.GetLevel() == logrus.TraceLevel {
-		logrus.WithFields(fields).WithFields(logrus.Fields{
-			"username": credentials.Username,
-			"password": credentials.Password,
-			"server":   server,
-		}).Trace("Using config credentials")
+	return "", nil
+}
+
+// decodeAuthEntry decodes a base64 "auth" field (username:password) from a Docker config.
+func decodeAuthEntry(authStr string) (dockerConfig.AuthConfig, error) {
+	decoded, err := base64.StdEncoding.DecodeString(authStr)
+	if err != nil {
+		return dockerConfig.AuthConfig{}, err
 	}
+	parts := strings.SplitN(string(decoded), ":", 2)
+	if len(parts) != 2 {
+		return dockerConfig.AuthConfig{}, fmt.Errorf("invalid auth format")
+	}
+	return dockerConfig.AuthConfig{
+		Username: parts[0],
+		Password: parts[1],
+	}, nil
+}
 
-	// Encode and return the auth config.
-	return EncodeCredentials(credentials)
+// convertToHostname strips scheme and path from a URL-like string to extract hostname.
+func convertToHostname(maybeURL string) string {
+	s := strings.TrimPrefix(maybeURL, "https://")
+	s = strings.TrimPrefix(s, "http://")
+	host, _, _ := strings.Cut(s, "/")
+	return host
 }
 
 // CredentialsStore returns a new credentials store based on the configuration file settings.
@@ -251,7 +289,7 @@ func EncodeCredentials(authConfig dockerConfig.AuthConfig) (string, error) {
 		return "", fmt.Errorf("%w: %w", errFailedMarshalAuthConfig, err)
 	}
 
-	// Encode the JSON to base64 for safe transmission.
+	// Encode the JSON to base64url (RFC4648 section 5) for safe transmission.
 	encoded := base64.URLEncoding.EncodeToString(buf)
 
 	logrus.WithFields(fields).Debug("Encoded auth config")
