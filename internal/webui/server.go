@@ -26,15 +26,16 @@ const maxRequestBodySize = 1 << 20 // 1 MB
 var validContainerName = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.\-/]{0,127}$`)
 
 type Server struct {
-	state  *State
-	events *EventHub
-	auth   *AuthStore
-	client container.Client
-	filter types.Filter
-	addr   string
-	tmpl   *template.Template
-	server *http.Server
-	version string
+	state           *State
+	events          *EventHub
+	auth            *AuthStore
+	client          container.Client
+	filter          types.Filter
+	addr            string
+	tmpl            *template.Template
+	server          *http.Server
+	version         string
+	selfContainerID string
 }
 
 type ContainerInfo struct {
@@ -54,6 +55,7 @@ type ContainerInfo struct {
 	ImageID          string            `json:"image_id"`
 	HasPreviousImage bool              `json:"has_previous_image"`
 	PreviousImage    string            `json:"previous_image,omitempty"`
+	IsSelf           bool              `json:"is_self"`
 }
 
 func NewServer(state *State, events *EventHub, auth *AuthStore, client container.Client, filter types.Filter, addr, version string) *Server {
@@ -70,8 +72,21 @@ func NewServer(state *State, events *EventHub, auth *AuthStore, client container
 		addr:    addr,
 		version: version,
 	}
+	s.detectSelfContainer()
 	s.loadTemplates()
 	return s
+}
+
+// detectSelfContainer finds our own container ID so we can handle self-updates specially.
+func (s *Server) detectSelfContainer() {
+	ctx := context.Background()
+	id, err := container.GetCurrentContainerID(ctx, s.client)
+	if err != nil {
+		logrus.WithError(err).Debug("Could not detect own container ID — self-update via pull+restart unavailable")
+		return
+	}
+	s.selfContainerID = string(id)
+	logrus.WithField("container_id", string(id)[:12]).Info("Detected own container for self-update")
 }
 
 func (s *Server) loadTemplates() {
@@ -387,6 +402,7 @@ func (s *Server) getContainerList() []ContainerInfo {
 			IsDeferred:   s.state.IsDeferred(name),
 			ChangelogURL: cs.ChangelogURL,
 			ImageID:      string(c.ImageID()),
+			IsSelf:       s.selfContainerID != "" && string(c.ID()) == s.selfContainerID,
 		}
 
 		if cs.PreviousImage != "" {

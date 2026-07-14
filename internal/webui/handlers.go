@@ -237,6 +237,38 @@ func (s *Server) performContainerUpdate(name string) {
 
 	s.events.BroadcastLog(name, "New image available: "+newImage.ShortID())
 
+	isSelf := s.selfContainerID != "" && string(target.ID()) == s.selfContainerID
+
+	if isSelf {
+		s.events.BroadcastLog(name, "Self-update detected — starting new container first, then stopping this one")
+
+		s.events.BroadcastLog(name, "Starting replacement container...")
+		startStart := time.Now()
+		newID, err := s.client.StartContainer(ctx, target)
+		if err != nil {
+			s.events.BroadcastLog(name, "Failed to start replacement: "+err.Error())
+			s.events.Broadcast(Event{Type: EventUpdateFailed, Container: name, Message: "Start failed"})
+			return
+		}
+		startDuration := time.Since(startStart).Truncate(time.Millisecond)
+		s.events.BroadcastLog(name, "Replacement started ("+startDuration.String()+") — "+string(newID)[:12])
+
+		elapsed := time.Since(startTime).Truncate(time.Millisecond)
+		s.events.BroadcastLog(name, fmt.Sprintf("Self-update complete (%s) — container is restarting", elapsed))
+		s.state.MarkUpdated(name)
+		s.state.AddHistory(HistoryEntry{
+			Container: name,
+			Timestamp: time.Now(),
+			Status:    "success",
+			Duration:  time.Since(startTime),
+		})
+
+		if err := s.client.StopAndRemoveContainer(ctx, target, 30*time.Second); err != nil {
+			logrus.WithError(err).Warn("Failed to stop old self container (may already be gone)")
+		}
+		return
+	}
+
 	s.events.BroadcastLog(name, "Stopping container...")
 	stopStart := time.Now()
 	if err := s.client.StopAndRemoveContainer(ctx, target, 30*time.Second); err != nil {
@@ -322,11 +354,17 @@ func (s *Server) handleRollbackContainer(w http.ResponseWriter, r *http.Request,
 			return
 		}
 
-		s.events.BroadcastLog(name, "Stopping container...")
-		if err := s.client.StopAndRemoveContainer(ctx, target, 30*time.Second); err != nil {
-			s.events.BroadcastLog(name, "Failed to stop: "+err.Error())
-			s.events.Broadcast(Event{Type: EventUpdateFailed, Container: name, Message: "Stop failed"})
-			return
+		isSelf := s.selfContainerID != "" && string(target.ID()) == s.selfContainerID
+
+		if isSelf {
+			s.events.BroadcastLog(name, "Self-rollback detected — starting old version first, then stopping this one")
+		} else {
+			s.events.BroadcastLog(name, "Stopping container...")
+			if err := s.client.StopAndRemoveContainer(ctx, target, 30*time.Second); err != nil {
+				s.events.BroadcastLog(name, "Failed to stop: "+err.Error())
+				s.events.Broadcast(Event{Type: EventUpdateFailed, Container: name, Message: "Stop failed"})
+				return
+			}
 		}
 
 		s.events.BroadcastLog(name, "Starting previous version: "+prevImage)
@@ -334,6 +372,23 @@ func (s *Server) handleRollbackContainer(w http.ResponseWriter, r *http.Request,
 		if err != nil {
 			s.events.BroadcastLog(name, "Failed to start: "+err.Error())
 			s.events.Broadcast(Event{Type: EventUpdateFailed, Container: name, Message: "Start failed"})
+			return
+		}
+
+		if isSelf {
+			elapsed := time.Since(startTime).Truncate(time.Millisecond)
+			s.events.BroadcastLog(name, fmt.Sprintf("Self-rollback complete (%s) — container is restarting", elapsed))
+			s.state.ClearPreviousImage(name)
+			s.state.AddHistory(HistoryEntry{
+				Container: name,
+				Timestamp: time.Now(),
+				Status:    "rollback",
+				Duration:  time.Since(startTime),
+			})
+
+			if err := s.client.StopAndRemoveContainer(ctx, target, 30*time.Second); err != nil {
+				logrus.WithError(err).Warn("Failed to stop old self container during rollback (may already be gone)")
+			}
 			return
 		}
 
