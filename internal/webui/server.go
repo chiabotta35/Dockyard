@@ -203,6 +203,7 @@ func (s *Server) Start(ctx context.Context) error {
 	protected.HandleFunc("/api/events", s.handleSSE)
 	protected.HandleFunc("/api/update/check", s.handleAPICheckUpdate)
 	protected.HandleFunc("/api/update/self", s.handleAPISelfUpdate)
+	protected.HandleFunc("/api/notifications/test", s.handleAPITestNotification)
 	protected.HandleFunc("/api/user/change-password", limitRequestBody(s.handleAPIChangePassword))
 	logrus.Debug("Registered protected page and API routes")
 

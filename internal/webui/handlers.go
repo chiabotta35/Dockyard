@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/nicholas-fedor/shoutrrr"
 	"github.com/sirupsen/logrus"
 
 	"github.com/dockyard/dockyard/pkg/types"
@@ -573,4 +574,30 @@ func (s *Server) BroadcastLog(container, message string) {
 
 func (s *Server) BroadcastUpdate(container, status string) {
 	s.events.BroadcastUpdate(container, status)
+}
+
+// handleAPITestNotification sends a test message to the configured notification URL.
+func (s *Server) handleAPITestNotification(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		s.writeError(w, "method not allowed", 405)
+		return
+	}
+
+	settings := s.state.GetSettings()
+	if settings.NotificationURL == "" {
+		s.writeError(w, "no notification URL configured", 400)
+		return
+	}
+
+	msg := fmt.Sprintf("Dockyard test notification\nVersion: %s\nTime: %s",
+		s.version, time.Now().Format("2006-01-02 15:04:05"))
+
+	if err := shoutrrr.Send(settings.NotificationURL, msg); err != nil {
+		logrus.WithError(err).Error("Test notification failed")
+		s.writeError(w, "failed to send: "+err.Error(), 500)
+		return
+	}
+
+	logrus.Info("Test notification sent successfully")
+	s.writeJSON(w, map[string]string{"status": "ok", "message": "test notification sent"})
 }

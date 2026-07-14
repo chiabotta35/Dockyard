@@ -158,7 +158,10 @@
                 <div class="space-y-4">
                     <div>
                         <label class="block text-sm font-medium text-gray-400 mb-1">Notification URL</label>
-                        <input type="text" name="notification_url" value="{{.Settings.NotificationURL}}" class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white font-mono focus:ring-dock-500 focus:border-dock-500" placeholder="ntfy://mytopic">
+                        <div class="flex gap-2">
+                            <input type="text" name="notification_url" value="{{.Settings.NotificationURL}}" class="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white font-mono focus:ring-dock-500 focus:border-dock-500" placeholder="ntfy://mytopic">
+                            <button type="button" onclick="testNotification()" id="test-notify-btn" class="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap">Test</button>
+                        </div>
                         <p class="text-xs text-gray-500 mt-1">Uses <a href="https://containrrr.dev/shoutrrr/" target="_blank" class="text-dock-500 hover:underline">Shoutrrr</a> format. See examples below.</p>
                     </div>
                     <div class="bg-gray-800/50 rounded-lg p-4 text-xs text-gray-400 space-y-2">
@@ -314,6 +317,41 @@
                 document.getElementById('schedule-cron').value = currentCron;
             }
         })();
+
+        function testNotification() {
+            var btn = document.getElementById('test-notify-btn');
+            btn.textContent = 'Sending...';
+            btn.disabled = true;
+
+            fetch('/api/notifications/test', { method: 'POST' })
+                .then(r => r.json())
+                .then(data => {
+                    if (data.error) {
+                        btn.textContent = 'Failed';
+                        btn.classList.remove('bg-purple-600', 'hover:bg-purple-700');
+                        btn.classList.add('bg-red-600');
+                    } else {
+                        btn.textContent = 'Sent!';
+                        btn.classList.remove('bg-purple-600', 'hover:bg-purple-700');
+                        btn.classList.add('bg-emerald-600');
+                    }
+                    setTimeout(() => {
+                        btn.textContent = 'Test';
+                        btn.disabled = false;
+                        btn.classList.remove('bg-emerald-600', 'bg-red-600');
+                        btn.classList.add('bg-purple-600', 'hover:bg-purple-700');
+                    }, 3000);
+                })
+                .catch(() => {
+                    btn.textContent = 'Failed';
+                    btn.disabled = false;
+                    setTimeout(() => {
+                        btn.textContent = 'Test';
+                        btn.classList.remove('bg-red-600');
+                        btn.classList.add('bg-purple-600', 'hover:bg-purple-700');
+                    }, 3000);
+                });
+        }
 
         function saveSettings(e) {
             e.preventDefault();
