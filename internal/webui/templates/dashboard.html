@@ -39,6 +39,7 @@
                     <a href="/" class="px-3 py-1.5 rounded-md text-sm font-medium bg-gray-800 text-white">Dashboard</a>
                     <a href="/settings" class="px-3 py-1.5 rounded-md text-sm font-medium text-gray-400 hover:text-white hover:bg-gray-800/50">Settings</a>
                     <a href="/history" class="px-3 py-1.5 rounded-md text-sm font-medium text-gray-400 hover:text-white hover:bg-gray-800/50">History</a>
+                    <a href="/logs" class="px-3 py-1.5 rounded-md text-sm font-medium text-gray-400 hover:text-white hover:bg-gray-800/50">Logs</a>
                 </div>
             </div>
         </div>
@@ -149,6 +150,9 @@
             var stackBadge = c.compose_stack ? '<span class="text-xs bg-dock-500/20 text-dock-500 px-2 py-0.5 rounded-full">' + esc(c.compose_stack) + '</span>' : '';
 
             var actionBtns = '';
+            if (c.update_mode !== 'ignore' && !c.is_self) {
+                actionBtns += '<button onclick="event.stopPropagation(); checkSingle(\'' + n + '\')" id="check-btn-' + n + '" class="bg-gray-700 hover:bg-gray-600 text-white px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors" title="Check for updates">Check</button>';
+            }
             if (c.stale) {
                 if (c.is_self) {
                     actionBtns += '<button onclick="event.stopPropagation(); triggerUpdate(\'' + n + '\')" class="bg-dock-600 hover:bg-dock-700 text-white px-3 py-1.5 rounded-lg text-xs font-medium transition-colors" title="Updates Dockyard itself">Update Dockyard</button>';
@@ -332,6 +336,28 @@
             }).then(function() {
                 if (!containerLogs[name]) containerLogs[name] = [];
                 expanded[name] = true;
+            });
+        };
+
+        window.checkSingle = function(name) {
+            var btn = document.getElementById('check-btn-' + name);
+            if (btn) { btn.disabled = true; btn.textContent = '...'; }
+            fetch('/api/containers/' + encodeURIComponent(name) + '/check', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'}
+            }).then(function(r) { return r.json(); }).then(function(data) {
+                // Update this container in the local list
+                var c = containers.find(function(x) { return x.name === name; });
+                if (c) {
+                    c.stale = data.stale;
+                    c.check_error = data.check_error || '';
+                    updateCardStatus(name, c.stale, c.state, c.check_error);
+                    updateCardButtons(name, c.stale, c.is_self, c.update_mode);
+                    updateStats();
+                }
+                if (btn) { btn.disabled = false; btn.textContent = 'Check'; }
+            }).catch(function() {
+                if (btn) { btn.disabled = false; btn.textContent = 'Check'; }
             });
         };
 

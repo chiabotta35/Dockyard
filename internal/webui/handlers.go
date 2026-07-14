@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/nicholas-fedor/shoutrrr"
@@ -51,6 +52,13 @@ func (s *Server) handleHistory(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (s *Server) handleLogsPage(w http.ResponseWriter, r *http.Request) {
+	s.renderTemplate(w, "logs.html", map[string]interface{}{
+		"Title":      "Logs - Dockyard",
+		"ActivePage": "logs",
+	})
+}
+
 func (s *Server) handleAPIContainers(w http.ResponseWriter, r *http.Request) {
 	containers := s.getContainerList()
 	s.writeJSON(w, containers)
@@ -87,6 +95,10 @@ func (s *Server) handleAPIContainerAction(w http.ResponseWriter, r *http.Request
 		s.handleSetChangelog(w, r, name)
 	case "rollback":
 		s.handleRollbackContainer(w, r, name)
+	case "check":
+		s.handleCheckContainer(w, r, name)
+	case "logs":
+		s.handleContainerLogs(w, r, name)
 	default:
 		s.writeError(w, "unknown action", 400)
 	}
@@ -497,7 +509,7 @@ func (s *Server) handleAPIHistory(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(w, s.state.GetHistory())
 }
 
-// handleAPICheckNow performs a real staleness check against Docker for all containers.
+// handleAPICheckNow performs a real staleness check against Docker for all containers in parallel.
 func (s *Server) handleAPICheckNow(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		s.writeError(w, "method not allowed", 405)
@@ -519,7 +531,7 @@ func (s *Server) handleAPICheckNow(w http.ResponseWriter, r *http.Request) {
 
 	ctx := context.Background()
 
-	// Fetch Docker containers once (avoid O(n^2) re-listing).
+	// Fetch Docker containers once.
 	dockerContainers, err := s.client.ListContainers(ctx)
 	if err != nil {
 		logrus.WithError(err).Error("Failed to list Docker containers for staleness check")
@@ -533,47 +545,288 @@ func (s *Server) handleAPICheckNow(w http.ResponseWriter, r *http.Request) {
 		dockerByName[dc.Name()] = dc
 	}
 
+	// Check containers in parallel (max 5 concurrent to avoid Docker API hammering).
+	type result struct {
+		index int
+		stale bool
+		err   string
+	}
+	results := make(chan result, limit)
+	sem := make(chan struct{}, 5)
+	var wg sync.WaitGroup
+
+	toCheck := len(containers)
+	if toCheck > limit {
+		toCheck = limit
+	}
+
+	for i := 0; i < toCheck; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			dc, ok := dockerByName[containers[i].Name]
+			if !ok {
+				results <- result{index: i, err: "container not found in Docker"}
+				return
+			}
+
+			isStale, _, err := s.client.IsContainerStale(ctx, dc, types.UpdateParams{})
+			if err != nil {
+				results <- result{index: i, err: err.Error()}
+				return
+			}
+			results <- result{index: i, stale: isStale}
+		}(i)
+	}
+
+	// Wait for all goroutines and close results channel.
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+
+	// Collect results.
 	stale := 0
 	failed := 0
 	upToDate := 0
-	for i := range containers {
-		if i >= limit {
-			break
-		}
-		dc, ok := dockerByName[containers[i].Name]
-		if !ok {
-			containers[i].CheckError = "container not found in Docker"
+	for res := range results {
+		if res.err != "" {
+			containers[res.index].CheckError = res.err
 			failed++
-			s.events.BroadcastLog(containers[i].Name, "Check failed: container not found in Docker")
-			continue
-		}
-
-		isStale, _, err := s.client.IsContainerStale(ctx, dc, types.UpdateParams{})
-		if err != nil {
-			errMsg := err.Error()
-			containers[i].CheckError = errMsg
-			failed++
-			s.events.BroadcastLog(containers[i].Name, "Check failed: "+errMsg)
-			logrus.WithError(err).WithField("container", containers[i].Name).Warn("Staleness check failed")
-			continue
-		}
-		if isStale {
-			containers[i].Stale = true
+			s.events.BroadcastLog(containers[res.index].Name, "Check failed: "+res.err)
+			logrus.WithField("container", containers[res.index].Name).Warn("Staleness check failed: ", res.err)
+		} else if res.stale {
+			containers[res.index].Stale = true
 			stale++
-			s.events.BroadcastLog(containers[i].Name, "Update available")
+			s.events.BroadcastLog(containers[res.index].Name, "Update available")
 		} else {
 			upToDate++
 		}
 	}
 
-	msg := fmt.Sprintf("Scan complete: %d checked, %d updates, %d up to date, %d failed", len(containers), stale, upToDate, failed)
+	msg := fmt.Sprintf("Scan complete: %d checked, %d updates, %d up to date, %d failed", toCheck, stale, upToDate, failed)
 	s.events.Broadcast(Event{Type: EventScanComplete, Message: msg})
 	s.events.BroadcastLog("", msg)
+
+	// Send notification if there are updates or errors.
+	s.sendCheckNotification(stale, failed, upToDate, toCheck)
 
 	if len(containers) > limit {
 		containers = containers[:limit]
 	}
 	s.writeJSON(w, containers)
+}
+
+// sendCheckNotification sends a notification if there are updates or errors.
+func (s *Server) sendCheckNotification(updates, errors, upToDate, total int) {
+	settings := s.state.GetSettings()
+	if settings.NotificationURL == "" || (updates == 0 && errors == 0) {
+		return
+	}
+
+	var msgParts []string
+	if updates > 0 {
+		msgParts = append(msgParts, fmt.Sprintf("%d update(s) available", updates))
+	}
+	if errors > 0 {
+		msgParts = append(msgParts, fmt.Sprintf("%d check error(s)", errors))
+	}
+
+	msg := fmt.Sprintf("Dockyard scan: %s\n%d/%d containers checked, %d up to date.\nVersion: %s",
+		strings.Join(msgParts, ", "), total, total, upToDate, s.version)
+
+	notifyURL := s.convertDiscordURL(settings.NotificationURL)
+	if err := shoutrrr.Send(notifyURL, msg); err != nil {
+		logrus.WithError(err).Warn("Failed to send check notification")
+	}
+}
+
+// convertDiscordURL auto-converts Discord webhook URLs to shoutrrr format.
+func (s *Server) convertDiscordURL(url string) string {
+	if strings.Contains(url, "discord.com/api/webhooks/") || strings.Contains(url, "discordapp.com/api/webhooks/") {
+		trimmed := strings.TrimRight(url, "/")
+		trimmed = strings.TrimPrefix(trimmed, "https://")
+		trimmed = strings.TrimPrefix(trimmed, "http://")
+		parts := strings.Split(trimmed, "/")
+		if len(parts) >= 5 {
+			webhookID := parts[len(parts)-2]
+			token := parts[len(parts)-1]
+			return fmt.Sprintf("discord://%s@%s", token, webhookID)
+		}
+	}
+	return url
+}
+
+// runAutoCheck performs a background staleness check (same as handleAPICheckNow but without HTTP response).
+func (s *Server) runAutoCheck(ctx context.Context) {
+	logrus.Info("Running auto-check for container updates")
+
+	containers := s.getContainerList()
+	if len(containers) == 0 {
+		return
+	}
+
+	dockerContainers, err := s.client.ListContainers(ctx)
+	if err != nil {
+		logrus.WithError(err).Error("Auto-check: failed to list Docker containers")
+		return
+	}
+
+	dockerByName := make(map[string]types.Container, len(dockerContainers))
+	for _, dc := range dockerContainers {
+		dockerByName[dc.Name()] = dc
+	}
+
+	type result struct {
+		index int
+		stale bool
+		err   string
+	}
+	results := make(chan result, len(containers))
+	sem := make(chan struct{}, 5)
+	var wg sync.WaitGroup
+
+	for i := range containers {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			dc, ok := dockerByName[containers[i].Name]
+			if !ok {
+				results <- result{index: i, err: "not found in Docker"}
+				return
+			}
+
+			isStale, _, err := s.client.IsContainerStale(ctx, dc, types.UpdateParams{})
+			if err != nil {
+				results <- result{index: i, err: err.Error()}
+				return
+			}
+			results <- result{index: i, stale: isStale}
+		}(i)
+	}
+
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+
+	stale := 0
+	failed := 0
+	upToDate := 0
+	for res := range results {
+		if res.err != "" {
+			failed++
+		} else if res.stale {
+			stale++
+		} else {
+			upToDate++
+		}
+	}
+
+	if stale > 0 || failed > 0 {
+		s.sendCheckNotification(stale, failed, upToDate, len(containers))
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"total":    len(containers),
+		"stale":    stale,
+		"failed":   failed,
+		"upToDate": upToDate,
+	}).Info("Auto-check complete")
+}
+
+// handleCheckContainer checks staleness for a single container.
+func (s *Server) handleCheckContainer(w http.ResponseWriter, r *http.Request, name string) {
+	if r.Method != http.MethodPost {
+		s.writeError(w, "method not allowed", 405)
+		return
+	}
+
+	ctx := context.Background()
+	dockerContainers, err := s.client.ListContainers(ctx)
+	if err != nil {
+		s.writeError(w, "failed to list containers: "+err.Error(), 500)
+		return
+	}
+
+	for _, dc := range dockerContainers {
+		if dc.Name() == name {
+			isStale, _, err := s.client.IsContainerStale(ctx, dc, types.UpdateParams{})
+			if err != nil {
+				s.events.BroadcastLog(name, "Check failed: "+err.Error())
+				s.writeJSON(w, map[string]interface{}{
+					"name":         name,
+					"stale":        false,
+					"check_error":  err.Error(),
+				})
+				return
+			}
+
+			if isStale {
+				s.events.BroadcastLog(name, "Update available")
+			} else {
+				s.events.BroadcastLog(name, "Up to date")
+			}
+
+			s.writeJSON(w, map[string]interface{}{
+				"name":  name,
+				"stale": isStale,
+			})
+			return
+		}
+	}
+
+	s.writeError(w, "container not found", 404)
+}
+
+// handleContainerLogs returns recent Docker container logs.
+func (s *Server) handleContainerLogs(w http.ResponseWriter, r *http.Request, name string) {
+	if r.Method != http.MethodGet {
+		s.writeError(w, "method not allowed", 405)
+		return
+	}
+
+	ctx := context.Background()
+	dockerContainers, err := s.client.ListContainers(ctx)
+	if err != nil {
+		s.writeError(w, "failed to list containers: "+err.Error(), 500)
+		return
+	}
+
+	lines := 200
+	if v := r.URL.Query().Get("lines"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 && n <= 5000 {
+			lines = n
+		}
+	}
+
+	for _, dc := range dockerContainers {
+		if dc.Name() == name {
+			logs, err := s.client.GetContainerLogs(ctx, dc.ID(), lines)
+			if err != nil {
+				logrus.WithError(err).WithField("container", name).Warn("Failed to get container logs")
+				s.writeJSON(w, map[string]interface{}{
+					"name":  name,
+					"logs":  "Failed to retrieve logs: " + err.Error(),
+					"error": err.Error(),
+				})
+				return
+			}
+			s.writeJSON(w, map[string]interface{}{
+				"name": name,
+				"logs": logs,
+			})
+			return
+		}
+	}
+
+	s.writeError(w, "container not found", 404)
 }
 
 func (s *Server) handleSSE(w http.ResponseWriter, r *http.Request) {
@@ -648,26 +901,12 @@ func (s *Server) handleAPITestNotification(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	notifyURL := settings.NotificationURL
-
-	// Auto-convert Discord webhook URLs to shoutrrr format.
-	// Input: https://discord.com/api/webhooks/WEBHOOK_ID/WEBHOOK_TOKEN
-	// Output: discord://WEBHOOK_TOKEN@WEBHOOK_ID
-	if strings.Contains(notifyURL, "discord.com/api/webhooks/") || strings.Contains(notifyURL, "discordapp.com/api/webhooks/") {
-		trimmedURL := strings.TrimRight(notifyURL, "/")
-		trimmedURL = strings.TrimPrefix(trimmedURL, "https://")
-		trimmedURL = strings.TrimPrefix(trimmedURL, "http://")
-		parts := strings.Split(trimmedURL, "/")
-		// Expected: [discord.com, api, webhooks, WEBHOOK_ID, WEBHOOK_TOKEN]
-		if len(parts) >= 5 {
-			webhookID := parts[len(parts)-2]
-			token := parts[len(parts)-1]
-			notifyURL = fmt.Sprintf("discord://%s@%s", token, webhookID)
-			logrus.WithFields(logrus.Fields{
-				"original":  settings.NotificationURL,
-				"converted": notifyURL,
-			}).Debug("Auto-converted Discord webhook URL to shoutrrr format")
-		}
+	notifyURL := s.convertDiscordURL(settings.NotificationURL)
+	if notifyURL != settings.NotificationURL {
+		logrus.WithFields(logrus.Fields{
+			"original":  settings.NotificationURL,
+			"converted": notifyURL,
+		}).Debug("Auto-converted Discord webhook URL to shoutrrr format")
 	}
 
 	msg := fmt.Sprintf("Dockyard test notification\nVersion: %s\nTime: %s",

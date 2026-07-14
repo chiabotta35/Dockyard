@@ -319,6 +319,18 @@ type Client interface {
 	// Returns:
 	//   - error: Non-nil if starting fails, nil on success.
 	StartContainerByID(ctx context.Context, containerID types.ContainerID) error
+
+	// GetContainerLogs returns recent logs from a Docker container.
+	//
+	// Parameters:
+	//   - ctx: Context for cancellation and timeout control.
+	//   - containerID: ID of the container to get logs from.
+	//   - tail: Number of lines to return from the end (0 for all).
+	//
+	// Returns:
+	//   - string: The log output.
+	//   - error: Non-nil if the log fetch fails.
+	GetContainerLogs(ctx context.Context, containerID types.ContainerID, tail int) (string, error)
 }
 
 // client is the concrete implementation of the Client interface.
@@ -1631,4 +1643,27 @@ func isDaemonConnectionError(err error) bool {
 		strings.Contains(errMsg, "connection refused") ||
 		errors.Is(err, io.EOF) ||
 		errors.Is(err, io.ErrUnexpectedEOF)
+}
+
+// GetContainerLogs returns recent logs from a Docker container.
+func (c *client) GetContainerLogs(ctx context.Context, containerID types.ContainerID, tail int) (string, error) {
+	opts := dockerClient.ContainerLogsOptions{
+		ShowStdout: true,
+		ShowStderr: true,
+		Tail:       strconv.Itoa(tail),
+		Timestamps: true,
+	}
+
+	reader, err := c.api.ContainerLogs(ctx, string(containerID), opts)
+	if err != nil {
+		return "", fmt.Errorf("failed to get container logs: %w", err)
+	}
+	defer reader.Close()
+
+	var buf bytes.Buffer
+	if _, err := buf.ReadFrom(reader); err != nil {
+		return "", fmt.Errorf("failed to read container logs: %w", err)
+	}
+
+	return buf.String(), nil
 }

@@ -195,6 +195,7 @@ func (s *Server) Start(ctx context.Context) error {
 	protected.HandleFunc("/", s.handleDashboard)
 	protected.HandleFunc("/settings", s.handleSettings)
 	protected.HandleFunc("/history", s.handleHistory)
+	protected.HandleFunc("/logs", s.handleLogsPage)
 
 	protected.HandleFunc("/api/containers", s.handleAPIContainers)
 	protected.HandleFunc("/api/containers/", s.handleAPIContainerAction)
@@ -238,6 +239,48 @@ func (s *Server) Start(ctx context.Context) error {
 				return
 			case <-ticker.C:
 				s.state.FlushLogs()
+			}
+		}
+	}()
+
+	// Server-side auto-check ticker.
+	go func() {
+		var checkTicker *time.Ticker
+		var checkCh <-chan time.Time
+		for {
+			// Read interval each loop so it picks up settings changes.
+			interval := s.state.GetAutoCheckInterval()
+			if interval > 0 {
+				if checkTicker != nil {
+					checkTicker.Stop()
+				}
+				checkTicker = time.NewTicker(interval)
+				checkCh = checkTicker.C
+				logrus.WithField("interval", interval).Info("Auto-check enabled")
+			} else {
+				if checkTicker != nil {
+					checkTicker.Stop()
+					checkTicker = nil
+				}
+				checkCh = nil
+				logrus.Info("Auto-check disabled (set to never)")
+			}
+
+			// Block until either a check fires or context is done.
+			// Use a shorter poll (5 min) to re-check settings in case the user changes the interval.
+			poll := time.NewTicker(5 * time.Minute)
+			defer poll.Stop()
+
+			select {
+			case <-ctx.Done():
+				if checkTicker != nil {
+					checkTicker.Stop()
+				}
+				return
+			case <-checkCh:
+				s.runAutoCheck(ctx)
+			case <-poll.C:
+				// Loop back to re-read the interval setting.
 			}
 		}
 	}()

@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{.Title}}</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        dock: { 50: '#f0f9ff', 100: '#e0f2fe', 500: '#0ea5e9', 600: '#0284c7', 700: '#0369a1' }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body { font-family: 'Inter', system-ui, -apple-system, sans-serif; }
+        .log-line { font-family: 'JetBrains Mono', 'Fira Code', monospace; }
+        .log-content { white-space: pre-wrap; word-break: break-all; }
+    </style>
+</head>
+<body class="bg-gray-950 text-gray-100 min-h-screen">
+    <nav class="bg-gray-900 border-b border-gray-800 sticky top-0 z-50">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex items-center justify-between h-14">
+                <div class="flex items-center gap-3">
+                    <div class="text-dock-500 text-xl">&#9875;</div>
+                    <span class="text-lg font-bold tracking-tight">Dockyard</span>
+                </div>
+                <div class="flex items-center gap-1">
+                    <a href="/" class="px-3 py-1.5 rounded-md text-sm font-medium text-gray-400 hover:text-white hover:bg-gray-800/50">Dashboard</a>
+                    <a href="/settings" class="px-3 py-1.5 rounded-md text-sm font-medium text-gray-400 hover:text-white hover:bg-gray-800/50">Settings</a>
+                    <a href="/history" class="px-3 py-1.5 rounded-md text-sm font-medium text-gray-400 hover:text-white hover:bg-gray-800/50">History</a>
+                    <a href="/logs" class="px-3 py-1.5 rounded-md text-sm font-medium bg-gray-800 text-white">Logs</a>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        <div class="flex items-center justify-between mb-6">
+            <div>
+                <h1 class="text-2xl font-bold">Container Logs</h1>
+                <p class="text-sm text-gray-500 mt-0.5">View Docker container stdout/stderr output</p>
+            </div>
+            <div class="flex items-center gap-2">
+                <label class="text-sm text-gray-400">Lines:</label>
+                <select id="log-lines" onchange="loadLogs()" class="bg-gray-800 border border-gray-700 text-gray-300 text-sm rounded-lg px-2 py-1">
+                    <option value="50">50</option>
+                    <option value="100">100</option>
+                    <option value="200" selected>200</option>
+                    <option value="500">500</option>
+                    <option value="1000">1000</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="mb-4">
+            <select id="container-select" onchange="loadLogs()" class="w-full bg-gray-800 border border-gray-700 text-white text-sm rounded-lg px-3 py-2 focus:ring-dock-500 focus:border-dock-500">
+                <option value="">Select a container...</option>
+            </select>
+        </div>
+
+        <div id="log-output" class="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
+            <div class="flex items-center justify-between px-4 py-2 border-b border-gray-800">
+                <span id="log-header" class="text-sm font-medium text-gray-400">No container selected</span>
+                <button onclick="copyLogs()" class="text-xs text-gray-600 hover:text-gray-400">Copy</button>
+            </div>
+            <div id="log-text" class="p-4 max-h-[70vh] overflow-y-auto text-xs log-line log-content text-gray-300">
+                Select a container from the dropdown above to view its logs.
+            </div>
+        </div>
+    </div>
+
+    <script>
+        var allContainers = [];
+
+        function esc(s) {
+            if (!s) return '';
+            var d = document.createElement('div');
+            d.appendChild(document.createTextNode(s));
+            return d.innerHTML;
+        }
+
+        function loadContainers() {
+            fetch('/api/containers')
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    allContainers = data;
+                    var sel = document.getElementById('container-select');
+                    var current = sel.value;
+                    // Clear existing options except the first
+                    while (sel.options.length > 1) sel.remove(1);
+                    // Sort: running first, then alphabetical
+                    data.sort(function(a, b) {
+                        if (a.state === 'running' && b.state !== 'running') return -1;
+                        if (a.state !== 'running' && b.state === 'running') return 1;
+                        return a.name.localeCompare(b.name);
+                    });
+                    data.forEach(function(c) {
+                        var opt = document.createElement('option');
+                        opt.value = c.name;
+                        opt.textContent = (c.state === 'running' ? '\u25CF ' : '\u25CB ') + c.name;
+                        if (c.name === current) opt.selected = true;
+                        sel.appendChild(opt);
+                    });
+                    if (current) loadLogs();
+                });
+        }
+
+        function loadLogs() {
+            var name = document.getElementById('container-select').value;
+            if (!name) return;
+            var lines = document.getElementById('log-lines').value;
+            var header = document.getElementById('log-header');
+            var text = document.getElementById('log-text');
+
+            header.textContent = name + ' - loading...';
+            text.textContent = 'Loading logs...';
+
+            fetch('/api/containers/' + encodeURIComponent(name) + '/logs?lines=' + lines)
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    header.textContent = name + ' (' + lines + ' lines)';
+                    if (data.error) {
+                        text.innerHTML = '<span class="text-red-400">' + esc(data.error) + '</span>';
+                    } else {
+                        text.textContent = data.logs || 'No logs available';
+                        text.scrollTop = text.scrollHeight;
+                    }
+                })
+                .catch(function(err) {
+                    header.textContent = name;
+                    text.innerHTML = '<span class="text-red-400">Failed to load logs</span>';
+                });
+        }
+
+        function copyLogs() {
+            var text = document.getElementById('log-text').textContent;
+            navigator.clipboard.writeText(text).then(function() {
+                var btn = document.querySelector('[onclick="copyLogs()"]');
+                btn.textContent = 'Copied!';
+                setTimeout(function() { btn.textContent = 'Copy'; }, 2000);
+            });
+        }
+
+        loadContainers();
+    </script>
+</body>
+</html>

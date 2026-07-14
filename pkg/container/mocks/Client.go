@@ -1279,3 +1279,75 @@ func (_c *MockClient_WarnOnHeadPullFailed_Call) RunAndReturn(run func(container1
 	_c.Call.Return(run)
 	return _c
 }
+
+// GetContainerLogs provides a mock function for the type MockClient
+func (_mock *MockClient) GetContainerLogs(ctx context.Context, containerID types.ContainerID, tail int) (string, error) {
+	ret := _mock.Called(ctx, containerID, tail)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetContainerLogs")
+	}
+
+	var r0 string
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, types.ContainerID, int) (string, error)); ok {
+		return returnFunc(ctx, containerID, tail)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, types.ContainerID, int) string); ok {
+		r0 = returnFunc(ctx, containerID, tail)
+	} else {
+		r0 = ret.Get(0).(string)
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, types.ContainerID, int) error); ok {
+		r1 = returnFunc(ctx, containerID, tail)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockClient_GetContainerLogs_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetContainerLogs'
+type MockClient_GetContainerLogs_Call struct {
+	*mock.Call
+}
+
+// GetContainerLogs is a helper method to define mock.On call
+//   - ctx context.Context
+//   - containerID types.ContainerID
+//   - tail int
+func (_e *MockClient_Expecter) GetContainerLogs(ctx interface{}, containerID interface{}, tail interface{}) *MockClient_GetContainerLogs_Call {
+	return &MockClient_GetContainerLogs_Call{Call: _e.mock.On("GetContainerLogs", ctx, containerID, tail)}
+}
+
+func (_c *MockClient_GetContainerLogs_Call) Run(run func(ctx context.Context, containerID types.ContainerID, tail int)) *MockClient_GetContainerLogs_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 types.ContainerID
+		if args[1] != nil {
+			arg1 = args[1].(types.ContainerID)
+		}
+		var arg2 int
+		if args[2] != nil {
+			arg2 = args[2].(int)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+		)
+	})
+	return _c
+}
+
+func (_c *MockClient_GetContainerLogs_Call) Return(s string, err error) *MockClient_GetContainerLogs_Call {
+	_c.Call.Return(s, err)
+	return _c
+}
+
+func (_c *MockClient_GetContainerLogs_Call) RunAndReturn(run func(ctx context.Context, containerID types.ContainerID, tail int) (string, error)) *MockClient_GetContainerLogs_Call {
+	_c.Call.Return(run)
+	return _c
+}
