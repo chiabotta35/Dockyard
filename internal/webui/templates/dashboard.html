@@ -24,6 +24,10 @@
         .log-line { font-family: 'JetBrains Mono', 'Fira Code', monospace; }
         .chevron { transition: transform 0.15s ease; display: inline-block; }
         .chevron.open { transform: rotate(90deg); }
+        @keyframes toast-in { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes toast-out { from { opacity: 1; } to { opacity: 0; transform: translateY(-10px); } }
+        .toast-in { animation: toast-in 0.3s ease-out forwards; }
+        .toast-out { animation: toast-out 0.4s ease-in forwards; }
     </style>
 </head>
 <body class="bg-gray-950 text-gray-100 min-h-screen">
@@ -69,20 +73,20 @@
                 <div class="text-sm text-gray-500">Total</div>
                 <div class="text-2xl font-bold mt-1" id="stat-total">-</div>
             </div>
-            <div class="bg-gray-900 border border-gray-800 rounded-xl p-4">
-                <div class="text-sm text-gray-500">Updates</div>
+            <div class="bg-gray-900 border border-amber-500/30 rounded-xl p-4 transition-all" id="stat-updates-card">
+                <div class="text-sm text-amber-400/70">Updates</div>
                 <div class="text-2xl font-bold mt-1 text-amber-400" id="stat-updates">-</div>
             </div>
-            <div class="bg-gray-900 border border-gray-800 rounded-xl p-4">
-                <div class="text-sm text-gray-500">Auto</div>
+            <div class="bg-gray-900 border border-emerald-500/30 rounded-xl p-4">
+                <div class="text-sm text-emerald-400/70">Auto</div>
                 <div class="text-2xl font-bold mt-1 text-emerald-400" id="stat-auto">-</div>
             </div>
-            <div class="bg-gray-900 border border-gray-800 rounded-xl p-4">
-                <div class="text-sm text-gray-500">Deferred</div>
+            <div class="bg-gray-900 border border-purple-500/30 rounded-xl p-4">
+                <div class="text-sm text-purple-400/70">Deferred</div>
                 <div class="text-2xl font-bold mt-1 text-purple-400" id="stat-deferred">-</div>
             </div>
-            <div class="bg-gray-900 border border-gray-800 rounded-xl p-4">
-                <div class="text-sm text-gray-500">Failed</div>
+            <div class="bg-gray-900 border border-red-500/30 rounded-xl p-4 transition-all" id="stat-failed-card">
+                <div class="text-sm text-red-400/70">Failed</div>
                 <div class="text-2xl font-bold mt-1 text-red-400" id="stat-failed">-</div>
             </div>
         </div>
@@ -110,6 +114,8 @@
         </div>
     </div>
 
+    <div id="toast-container" class="fixed bottom-4 right-4 z-50 flex flex-col gap-2 max-w-md"></div>
+
     <script>
     (function() {
         var currentFilter = 'all';
@@ -124,10 +130,38 @@
         // Database image patterns — matched against image name (before tag)
         var DB_IMAGES = /^(mysql|mariadb|postgres(?:ql)?|mongo(?:db)?|redis|memcached|influxdb|timescaledb|cockroach(?:db)?|cassandra|elasticsearch|opensearch|clickhouse|neo4j|couchdb|valkey|keydb|scylladb|mssql|percona|tidb|planetscale|dragonflydb|ferretdb)/i;
 
+        // Sidecar image patterns — companion containers that shouldn't be checked independently
+        var SIDECAR_IMAGES = /^(apache\/tika|gotenberg|tika|gotenberg\/gotenberg|pdfjs|libreoffice|chromium|wkhtmltopdf|collabora|onlyoffice-documentserver|embedder)/i;
+
         function isDatabase(c) {
             if (!c.image) return false;
             var repo = c.image.split(':')[0].split('/').pop();
             return DB_IMAGES.test(repo);
+        }
+
+        function isSidecar(c) {
+            if (!c.image) return false;
+            var repo = c.image.split(':')[0].split('/').pop();
+            return SIDECAR_IMAGES.test(repo);
+        }
+
+        function showToast(message, type) {
+            type = type || 'error';
+            var container = document.getElementById('toast-container');
+            var colors = type === 'error'
+                ? 'bg-red-500/10 border-red-500/40 text-red-400'
+                : type === 'warning'
+                    ? 'bg-amber-500/10 border-amber-500/40 text-amber-400'
+                    : 'bg-emerald-500/10 border-emerald-500/40 text-emerald-400';
+            var toast = document.createElement('div');
+            toast.className = 'toast-in px-4 py-3 rounded-xl text-sm border backdrop-blur-sm ' + colors;
+            toast.textContent = message;
+            container.appendChild(toast);
+            setTimeout(function() {
+                toast.classList.remove('toast-in');
+                toast.classList.add('toast-out');
+                setTimeout(function() { toast.remove(); }, 500);
+            }, 6000);
         }
 
         function esc(s) {
@@ -328,10 +362,25 @@
 
         function updateStats() {
             document.getElementById('stat-total').textContent = containers.length;
-            document.getElementById('stat-updates').textContent = containers.filter(function(c) { return c.stale; }).length;
+            var updateCount = containers.filter(function(c) { return c.stale; }).length;
+            var failedCount = containers.filter(function(c) { return c.check_error; }).length;
+            document.getElementById('stat-updates').textContent = updateCount;
             document.getElementById('stat-auto').textContent = containers.filter(function(c) { return c.update_mode === 'auto'; }).length;
             document.getElementById('stat-deferred').textContent = containers.filter(function(c) { return c.is_deferred; }).length;
-            document.getElementById('stat-failed').textContent = containers.filter(function(c) { return c.check_error; }).length;
+            document.getElementById('stat-failed').textContent = failedCount;
+            // Highlight cards with active counts
+            var updatesCard = document.getElementById('stat-updates-card');
+            var failedCard = document.getElementById('stat-failed-card');
+            if (updateCount > 0) {
+                updatesCard.className = 'bg-amber-500/5 border border-amber-500/50 rounded-xl p-4 transition-all shadow-lg shadow-amber-500/10';
+            } else {
+                updatesCard.className = 'bg-gray-900 border border-amber-500/30 rounded-xl p-4 transition-all';
+            }
+            if (failedCount > 0) {
+                failedCard.className = 'bg-red-500/5 border border-red-500/50 rounded-xl p-4 transition-all shadow-lg shadow-red-500/10';
+            } else {
+                failedCard.className = 'bg-gray-900 border border-red-500/30 rounded-xl p-4 transition-all';
+            }
         }
 
         // --- Public functions (called from onclick) ---
@@ -399,6 +448,11 @@
                     updateCardButtons(name, c.stale, c.is_self, c.update_mode);
                     updateStats();
                 }
+                if (data.check_error) {
+                    showToast(name + ': ' + data.check_error, 'error');
+                } else if (data.stale) {
+                    showToast(name + ': update available', 'warning');
+                }
                 if (btn) { btn.disabled = false; btn.textContent = 'Check'; }
             }).catch(function() {
                 if (btn) { btn.disabled = false; btn.textContent = 'Check'; }
@@ -447,7 +501,7 @@
             document.getElementById('check-spinner').classList.remove('hidden');
             var banner = document.getElementById('scan-banner');
             banner.classList.add('hidden');
-            fetch('/api/check', { method: 'POST' })
+            fetch('/api/check?scope=main', { method: 'POST' })
                 .then(function(r) { return r.json(); })
                 .then(function(data) {
                     document.getElementById('check-btn').disabled = false;
@@ -463,6 +517,10 @@
                     if (errors > 0) {
                         banner.className = 'mb-4 px-4 py-3 rounded-xl text-sm font-medium border bg-red-500/10 border-red-500/30 text-red-400';
                         banner.textContent = errors + ' container' + (errors > 1 ? 's' : '') + ' failed to check. ' + updates + ' update' + (updates !== 1 ? 's' : '') + ' available. ' + upToDate + ' up to date.';
+                        // Show error toast
+                        data.filter(function(c) { return c.check_error; }).forEach(function(c) {
+                            showToast(c.name + ': ' + c.check_error, 'error');
+                        });
                     } else if (updates > 0) {
                         banner.className = 'mb-4 px-4 py-3 rounded-xl text-sm font-medium border bg-amber-500/10 border-amber-500/30 text-amber-400';
                         banner.textContent = updates + ' update' + (updates !== 1 ? 's' : '') + ' available. ' + upToDate + ' container' + (upToDate !== 1 ? 's' : '') + ' up to date.';
@@ -538,7 +596,7 @@
 
         function autoUpdateStale() {
             containers.forEach(function(c) {
-                if (c.stale && c.update_mode === 'auto' && !c.is_self && !c.is_deferred) {
+                if (c.stale && c.update_mode === 'auto' && !c.is_self && !c.is_deferred && !isSidecar(c) && !isDatabase(c)) {
                     triggerUpdate(c.name);
                 }
             });
@@ -615,9 +673,9 @@
                 .catch(function() { isLoading = false; });
         }, 60000);
 
-        // Auto-check staleness every 12 hours
+        // Auto-check staleness every 12 hours (main containers only)
         setInterval(function() {
-            fetch('/api/check', { method: 'POST' })
+            fetch('/api/check?scope=main', { method: 'POST' })
                 .then(function(r) { return r.json(); })
                 .then(function(data) {
                     containers = data;

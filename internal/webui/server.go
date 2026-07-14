@@ -57,6 +57,34 @@ type ContainerInfo struct {
 	PreviousImage    string            `json:"previous_image,omitempty"`
 	IsSelf           bool              `json:"is_self"`
 	CheckError       string            `json:"check_error,omitempty"`
+	IsDatabase       bool              `json:"is_database"`
+	IsSidecar        bool              `json:"is_sidecar"`
+}
+
+var dbImagePatterns = regexp.MustCompile(`(?i)^(mysql|mariadb|postgres(?:ql)?|mongo(?:db)?|redis|memcached|influxdb|timescaledb|cockroach(?:db)?|cassandra|elasticsearch|opensearch|clickhouse|neo4j|couchdb|valkey|keydb|scylladb|mssql|percona|tidb|planetscale|dragonflydb|ferretdb)`)
+
+var sidecarImagePatterns = regexp.MustCompile(`(?i)^(apache/tika|gotenberg|tika|gotenberg/gotenberg|pdfjs|libreoffice|chromium|wkhtmltopdf|collabora|onlyoffice-documentserver|embedder)`)
+
+func isDatabaseImage(image string) bool {
+	repo := image
+	if idx := strings.Index(image, ":"); idx != -1 {
+		repo = image[:idx]
+	}
+	if idx := strings.LastIndex(repo, "/"); idx != -1 {
+		repo = repo[idx+1:]
+	}
+	return dbImagePatterns.MatchString(repo)
+}
+
+func isSidecarImage(image string) bool {
+	repo := image
+	if idx := strings.Index(image, ":"); idx != -1 {
+		repo = image[:idx]
+	}
+	if idx := strings.LastIndex(repo, "/"); idx != -1 {
+		repo = repo[idx+1:]
+	}
+	return sidecarImagePatterns.MatchString(repo)
 }
 
 func NewServer(state *State, events *EventHub, auth *AuthStore, client container.Client, filter types.Filter, addr, version string) *Server {
@@ -463,6 +491,8 @@ func (s *Server) getContainerList() []ContainerInfo {
 			ChangelogURL: cs.ChangelogURL,
 			ImageID:      string(c.ImageID()),
 			IsSelf:       s.selfContainerID != "" && string(c.ID()) == s.selfContainerID,
+			IsDatabase:   isDatabaseImage(c.ImageName()),
+			IsSidecar:    isSidecarImage(c.ImageName()),
 		}
 
 		if cs.PreviousImage != "" {

@@ -521,6 +521,18 @@ func (s *Server) handleAPICheckNow(w http.ResponseWriter, r *http.Request) {
 
 	containers := s.getContainerList()
 
+	// Filter by scope: "main" excludes databases and sidecars.
+	scope := r.URL.Query().Get("scope")
+	if scope == "main" {
+		filtered := containers[:0]
+		for _, c := range containers {
+			if !c.IsDatabase && !c.IsSidecar {
+				filtered = append(filtered, c)
+			}
+		}
+		containers = filtered
+	}
+
 	limitStr := r.URL.Query().Get("limit")
 	limit := 50
 	if limitStr != "" {
@@ -592,16 +604,19 @@ func (s *Server) handleAPICheckNow(w http.ResponseWriter, r *http.Request) {
 	stale := 0
 	failed := 0
 	upToDate := 0
+	var details []checkDetail
 	for res := range results {
 		if res.err != "" {
 			containers[res.index].CheckError = res.err
 			failed++
 			s.events.BroadcastLog(containers[res.index].Name, "Check failed: "+res.err)
 			logrus.WithField("container", containers[res.index].Name).Warn("Staleness check failed: ", res.err)
+			details = append(details, checkDetail{name: containers[res.index].Name, image: containers[res.index].Image, errMsg: res.err})
 		} else if res.stale {
 			containers[res.index].Stale = true
 			stale++
 			s.events.BroadcastLog(containers[res.index].Name, "Update available")
+			details = append(details, checkDetail{name: containers[res.index].Name, image: containers[res.index].Image, stale: true})
 		} else {
 			upToDate++
 		}
@@ -612,7 +627,7 @@ func (s *Server) handleAPICheckNow(w http.ResponseWriter, r *http.Request) {
 	s.events.BroadcastLog("", msg)
 
 	// Send notification if there are updates or errors.
-	s.sendCheckNotification(stale, failed, upToDate, toCheck)
+	s.sendCheckNotification(stale, failed, upToDate, toCheck, details)
 
 	if len(containers) > limit {
 		containers = containers[:limit]
@@ -621,27 +636,50 @@ func (s *Server) handleAPICheckNow(w http.ResponseWriter, r *http.Request) {
 }
 
 // sendCheckNotification sends a notification if there are updates or errors.
-func (s *Server) sendCheckNotification(updates, errors, upToDate, total int) {
+func (s *Server) sendCheckNotification(updates, errors, upToDate, total int, details []checkDetail) {
 	settings := s.state.GetSettings()
 	if settings.NotificationURL == "" || (updates == 0 && errors == 0) {
 		return
 	}
 
 	var msgParts []string
+
+	// List containers needing updates with image details.
 	if updates > 0 {
-		msgParts = append(msgParts, fmt.Sprintf("%d update(s) available", updates))
-	}
-	if errors > 0 {
-		msgParts = append(msgParts, fmt.Sprintf("%d check error(s)", errors))
+		msgParts = append(msgParts, fmt.Sprintf("**%d update(s) available:**", updates))
+		for _, d := range details {
+			if d.stale {
+				msgParts = append(msgParts, fmt.Sprintf("  \u2022 **%s** — `%s`", d.name, d.image))
+			}
+		}
 	}
 
-	msg := fmt.Sprintf("Dockyard scan: %s\n%d/%d containers checked, %d up to date.\nVersion: %s",
-		strings.Join(msgParts, ", "), total, total, upToDate, s.version)
+	// List containers with check errors.
+	if errors > 0 {
+		msgParts = append(msgParts, fmt.Sprintf("**%d check error(s):**", errors))
+		for _, d := range details {
+			if d.errMsg != "" {
+				msgParts = append(msgParts, fmt.Sprintf("  \u2022 **%s** — %s", d.name, d.errMsg))
+			}
+		}
+	}
+
+	msgParts = append(msgParts, fmt.Sprintf("\n%d/%d containers checked, %d up to date. Dockyard v%s",
+		total, total, upToDate, s.version))
+
+	msg := strings.Join(msgParts, "\n")
 
 	notifyURL := s.convertDiscordURL(settings.NotificationURL)
 	if err := shoutrrr.Send(notifyURL, msg); err != nil {
 		logrus.WithError(err).Warn("Failed to send check notification")
 	}
+}
+
+type checkDetail struct {
+	name   string
+	image  string
+	stale  bool
+	errMsg string
 }
 
 // convertDiscordURL auto-converts Discord webhook URLs to shoutrrr format.
@@ -665,6 +703,18 @@ func (s *Server) runAutoCheck(ctx context.Context) {
 	logrus.Info("Running auto-check for container updates")
 
 	containers := s.getContainerList()
+	if len(containers) == 0 {
+		return
+	}
+
+	// Auto-check only checks main containers (skip databases and sidecars).
+	filtered := containers[:0]
+	for _, c := range containers {
+		if !c.IsDatabase && !c.IsSidecar {
+			filtered = append(filtered, c)
+		}
+	}
+	containers = filtered
 	if len(containers) == 0 {
 		return
 	}
@@ -719,18 +769,21 @@ func (s *Server) runAutoCheck(ctx context.Context) {
 	stale := 0
 	failed := 0
 	upToDate := 0
+	var details []checkDetail
 	for res := range results {
 		if res.err != "" {
 			failed++
+			details = append(details, checkDetail{name: containers[res.index].Name, image: containers[res.index].Image, errMsg: res.err})
 		} else if res.stale {
 			stale++
+			details = append(details, checkDetail{name: containers[res.index].Name, image: containers[res.index].Image, stale: true})
 		} else {
 			upToDate++
 		}
 	}
 
 	if stale > 0 || failed > 0 {
-		s.sendCheckNotification(stale, failed, upToDate, len(containers))
+		s.sendCheckNotification(stale, failed, upToDate, len(containers), details)
 	}
 
 	logrus.WithFields(logrus.Fields{
