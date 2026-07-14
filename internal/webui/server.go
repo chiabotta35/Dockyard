@@ -59,6 +59,8 @@ type ContainerInfo struct {
 	CheckError       string            `json:"check_error,omitempty"`
 	IsDatabase       bool              `json:"is_database"`
 	IsSidecar        bool              `json:"is_sidecar"`
+	CheckedAt        string            `json:"checked_at,omitempty"`
+	LatestImage      string            `json:"latest_image,omitempty"`
 }
 
 var dbImagePatterns = regexp.MustCompile(`(?i)^(mysql|mariadb|postgres(?:ql)?|mongo(?:db)?|redis|memcached|influxdb|timescaledb|cockroach(?:db)?|cassandra|elasticsearch|opensearch|clickhouse|neo4j|couchdb|valkey|keydb|scylladb|mssql|percona|tidb|planetscale|dragonflydb|ferretdb)`)
@@ -314,6 +316,13 @@ func (s *Server) Start(ctx context.Context) error {
 	}()
 
 	logrus.WithField("addr", s.addr).Info("Dockyard web UI starting")
+
+	// Auto-check on startup after a short delay (gives containers time to register).
+	go func() {
+		time.Sleep(10 * time.Second)
+		s.runAutoCheck(context.Background())
+	}()
+
 	if err := s.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		logrus.WithError(err).WithField("addr", s.addr).Error("HTTP server failed")
 		return err
@@ -485,7 +494,7 @@ func (s *Server) getContainerList() []ContainerInfo {
 		ci := ContainerInfo{
 			Name:         name,
 			Image:        c.ImageName(),
-			Stale:        c.IsStale(),
+			Stale:        c.IsStale() || cs.IsStale,
 			UpdateMode:   string(cs.UpdateMode),
 			IsDeferred:   s.state.IsDeferred(name),
 			ChangelogURL: cs.ChangelogURL,
@@ -493,6 +502,12 @@ func (s *Server) getContainerList() []ContainerInfo {
 			IsSelf:       s.selfContainerID != "" && string(c.ID()) == s.selfContainerID,
 			IsDatabase:   isDatabaseImage(c.ImageName()),
 			IsSidecar:    isSidecarImage(c.ImageName()),
+			CheckError:   cs.CheckError,
+			LatestImage:  cs.LatestImage,
+		}
+
+		if cs.CheckedAt != nil {
+			ci.CheckedAt = cs.CheckedAt.Format(time.RFC3339)
 		}
 
 		if cs.PreviousImage != "" {

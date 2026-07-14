@@ -37,7 +37,7 @@
                 <div class="flex items-center gap-3">
                     <div class="text-dock-500 text-xl">&#9875;</div>
                     <span class="text-lg font-bold tracking-tight">Dockyard</span>
-                    <span class="text-xs text-gray-500 bg-gray-800 px-2 py-0.5 rounded-full">v{{.Version}}</span>
+                    <span class="text-xs text-gray-500 bg-gray-800 px-2 py-0.5 rounded-full">{{.Version}}</span>
                 </div>
                 <div class="flex items-center gap-1">
                     <a href="/" class="px-3 py-1.5 rounded-md text-sm font-medium bg-gray-800 text-white">Dashboard</a>
@@ -56,7 +56,12 @@
                 <p class="text-sm text-gray-500 mt-0.5">Monitor and manage Docker container updates</p>
             </div>
             <div class="flex items-center gap-3">
-                <span id="update-eta" class="text-sm text-gray-400 hidden"></span>
+                <div id="update-progress" class="hidden flex items-center gap-3">
+                    <div class="w-48 h-2 bg-gray-800 rounded-full overflow-hidden">
+                        <div id="update-progress-bar" class="h-full bg-dock-500 rounded-full transition-all duration-300" style="width: 0%"></div>
+                    </div>
+                    <span id="update-eta" class="text-sm text-gray-400 whitespace-nowrap"></span>
+                </div>
                 <button id="self-update-btn" onclick="selfUpdate()" class="hidden bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors items-center gap-2">
                     <span>&#8635;</span>
                     <span id="self-update-text">Update Dockyard</span>
@@ -279,6 +284,8 @@
                 + (c.is_deferred ? '<div><div class="text-xs text-gray-500">Deferred Until</div><div class="text-sm text-purple-400">' + esc(c.defer_until) + '</div></div>' : '')
                 + (c.check_error ? '<div class="col-span-2 bg-red-500/10 border border-red-500/30 rounded-lg p-2"><div class="text-xs text-red-400">Staleness check failed</div><div class="text-xs text-gray-400 mt-1 font-mono">' + esc(c.check_error) + '</div></div>' : '')
                 + (vs === 'ok' ? '<div class="col-span-2 bg-emerald-500/10 border border-emerald-500/30 rounded-lg p-2"><div class="text-xs text-emerald-400">Image is up to date</div></div>' : '')
+                + (c.latest_image && c.stale ? '<div class="col-span-2 bg-amber-500/10 border border-amber-500/30 rounded-lg p-2"><div class="text-xs text-amber-400">Update available</div><div class="text-xs text-gray-400 mt-1 font-mono">' + esc(c.latest_image) + '</div></div>' : '')
+                + (c.checked_at ? '<div><div class="text-xs text-gray-500">Last Checked</div><div class="text-sm text-gray-300">' + new Date(c.checked_at).toLocaleString() + '</div></div>' : '')
                 + (c.has_previous_image ? '<div class="col-span-2"><div class="text-xs text-gray-500">Previous Image</div><div class="text-sm font-mono text-amber-400">' + esc(c.previous_image) + '</div></div>' : '')
                 + (c.is_self ? '<div class="col-span-2 bg-blue-500/10 border border-blue-500/30 rounded-lg p-2"><div class="text-xs text-blue-400">This is Dockyard. Updating starts a replacement first, then stops this one.</div></div>' : '')
                 + '</div>'
@@ -540,6 +547,12 @@
         };
 
         window.triggerUpdate = function(name) {
+            if (updateTotal === 0) {
+                updateTotal = 1;
+                updateDone = 0;
+                updateStart = Date.now();
+                showUpdateProgress();
+            }
             fetch('/api/containers/' + name + '/update', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'}
@@ -693,19 +706,37 @@
             if (expanded[name]) renderLogPanel(name);
         }
 
-        function updateETA() {
+        function showUpdateProgress() {
+            var container = document.getElementById('update-progress');
+            container.classList.remove('hidden');
+            updateProgress();
+        }
+
+        function updateProgress() {
+            var bar = document.getElementById('update-progress-bar');
             var etaEl = document.getElementById('update-eta');
-            if (!updateStart || updateDone >= updateTotal) {
-                etaEl.classList.add('hidden');
+            if (!updateStart || updateTotal === 0) {
+                document.getElementById('update-progress').classList.add('hidden');
                 return;
             }
-            var elapsed = (Date.now() - updateStart) / 1000;
-            var perContainer = elapsed / updateDone;
-            var remaining = (updateTotal - updateDone) * perContainer;
-            var mins = Math.floor(remaining / 60);
-            var secs = Math.floor(remaining % 60);
-            etaEl.textContent = 'ETA: ' + (mins > 0 ? mins + 'm ' : '') + secs + 's (' + updateDone + '/' + updateTotal + ')';
-            etaEl.classList.remove('hidden');
+            var pct = Math.round((updateDone / updateTotal) * 100);
+            bar.style.width = pct + '%';
+            if (updateDone >= updateTotal) {
+                bar.className = 'h-full bg-emerald-500 rounded-full transition-all duration-300';
+                etaEl.textContent = 'Done (' + updateTotal + '/' + updateTotal + ')';
+                setTimeout(function() {
+                    document.getElementById('update-progress').classList.add('hidden');
+                    bar.style.width = '0%';
+                    bar.className = 'h-full bg-dock-500 rounded-full transition-all duration-300';
+                }, 5000);
+            } else {
+                var elapsed = (Date.now() - updateStart) / 1000;
+                var perContainer = elapsed / Math.max(updateDone, 1);
+                var remaining = (updateTotal - updateDone) * perContainer;
+                var mins = Math.floor(remaining / 60);
+                var secs = Math.floor(remaining % 60);
+                etaEl.textContent = (mins > 0 ? mins + 'm ' : '') + secs + 's left \u2022 ' + updateDone + '/' + updateTotal;
+            }
         }
 
         function dataHash(data) {
@@ -722,6 +753,14 @@
                 .then(function(r) { return r.json(); })
                 .then(function(data) {
                     containers = data;
+                    // Initialize checked map from persisted state
+                    containers.forEach(function(c) {
+                        if (c.checked_at && !checked[c.name]) {
+                            if (c.check_error) checked[c.name] = 'error';
+                            else if (c.stale) checked[c.name] = 'stale';
+                            else checked[c.name] = 'ok';
+                        }
+                    });
                     isLoading = false;
                     renderList();
                 })
@@ -729,11 +768,19 @@
         }
 
         function autoUpdateStale() {
+            var toUpdate = [];
             containers.forEach(function(c) {
                 if (getVisualState(c) === 'stale' && c.update_mode === 'auto' && !c.is_self && !c.is_deferred && !isSidecar(c) && !isDatabase(c)) {
-                    triggerUpdate(c.name);
+                    toUpdate.push(c);
                 }
             });
+            if (toUpdate.length > 0) {
+                updateTotal = toUpdate.length;
+                updateDone = 0;
+                updateStart = Date.now();
+                showUpdateProgress();
+                toUpdate.forEach(function(c) { triggerUpdate(c.name); });
+            }
         }
 
         // --- SSE ---
@@ -754,7 +801,7 @@
             var name = data.container;
             addLog(name, 'Update complete');
             updateDone++;
-            updateETA();
+            updateProgress();
             fetch('/api/containers').then(function(r) { return r.json(); }).then(function(allContainers) {
                 containers = allContainers;
                 checked[name] = 'ok';
@@ -773,7 +820,7 @@
             addLog(data.container, 'Update failed');
             checked[data.container] = 'error';
             updateDone++;
-            updateETA();
+            updateProgress();
             fetch('/api/containers').then(function(r) { return r.json(); }).then(function(allContainers) {
                 containers = allContainers;
                 updateCardVisualState(data.container);

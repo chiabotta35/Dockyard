@@ -28,6 +28,10 @@ type ContainerState struct {
 	LastUpdated   *time.Time `json:"last_updated,omitempty"`
 	PreviousImage string     `json:"previous_image,omitempty"`
 	PreviousImageID string   `json:"previous_image_id,omitempty"`
+	CheckError    string     `json:"check_error,omitempty"`
+	IsStale       bool       `json:"is_stale,omitempty"`
+	CheckedAt     *time.Time `json:"checked_at,omitempty"`
+	LatestImage   string     `json:"latest_image,omitempty"`
 }
 
 type Settings struct {
@@ -387,6 +391,34 @@ func (s *State) ClearPreviousImage(name string) error {
 	if cs, ok := s.Containers[name]; ok {
 		cs.PreviousImage = ""
 		cs.PreviousImageID = ""
+	}
+	s.mu.Unlock()
+	return s.save()
+}
+
+func (s *State) SaveCheckResult(name string, isStale bool, checkErr string, latestImage string) error {
+	s.mu.Lock()
+	cs, ok := s.Containers[name]
+	if !ok {
+		cs = &ContainerState{UpdateMode: ModeManual}
+		s.Containers[name] = cs
+	}
+	now := time.Now()
+	cs.IsStale = isStale
+	cs.CheckError = checkErr
+	cs.CheckedAt = &now
+	cs.LatestImage = latestImage
+	s.mu.Unlock()
+	return s.save()
+}
+
+func (s *State) ClearCheckResult(name string) error {
+	s.mu.Lock()
+	if cs, ok := s.Containers[name]; ok {
+		cs.IsStale = false
+		cs.CheckError = ""
+		cs.CheckedAt = nil
+		cs.LatestImage = ""
 	}
 	s.mu.Unlock()
 	return s.save()

@@ -612,13 +612,16 @@ func (s *Server) handleAPICheckNow(w http.ResponseWriter, r *http.Request) {
 			s.events.BroadcastLog(containers[res.index].Name, "Check failed: "+res.err)
 			logrus.WithField("container", containers[res.index].Name).Warn("Staleness check failed: ", res.err)
 			details = append(details, checkDetail{name: containers[res.index].Name, image: containers[res.index].Image, errMsg: res.err})
+			s.state.SaveCheckResult(containers[res.index].Name, false, res.err, "")
 		} else if res.stale {
 			containers[res.index].Stale = true
 			stale++
 			s.events.BroadcastLog(containers[res.index].Name, "Update available")
 			details = append(details, checkDetail{name: containers[res.index].Name, image: containers[res.index].Image, stale: true})
+			s.state.SaveCheckResult(containers[res.index].Name, true, "", "")
 		} else {
 			upToDate++
+			s.state.SaveCheckResult(containers[res.index].Name, false, "", "")
 		}
 	}
 
@@ -825,6 +828,7 @@ func (s *Server) handleCheckContainer(w http.ResponseWriter, r *http.Request, na
 			isStale, _, err := s.client.IsContainerStale(ctx, dc, types.UpdateParams{})
 			if err != nil {
 				s.events.BroadcastLog(name, "Check failed: "+err.Error())
+				s.state.SaveCheckResult(name, false, err.Error(), "")
 				s.writeJSON(w, map[string]interface{}{
 					"name":         name,
 					"stale":        false,
@@ -838,6 +842,7 @@ func (s *Server) handleCheckContainer(w http.ResponseWriter, r *http.Request, na
 			} else {
 				s.events.BroadcastLog(name, "Up to date")
 			}
+			s.state.SaveCheckResult(name, isStale, "", "")
 
 			s.writeJSON(w, map[string]interface{}{
 				"name":  name,
