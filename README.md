@@ -16,38 +16,93 @@ Dockyard monitors running Docker containers and updates them when new images are
 - **Update History** -- Track all past updates with timestamps and status
 - **Settings** -- Configure schedule, behavior, backup, and notifications from the UI
 
-## Quick Start
+## Installation
 
-### Docker Compose (recommended)
+### Prerequisites
+
+- Docker and Docker Compose installed on the target machine
+- Access to the Docker socket (`/var/run/docker.sock`)
+
+### Step 1: Clone the repository
 
 ```bash
-git clone https://github.com/dockyard/dockyard.git
-cd dockyard
-docker compose up -d
+git clone https://github.com/chiabotta35/Dockyard.git
+cd Dockyard
 ```
 
-Open http://localhost:8080 and create your admin account.
-
-### Docker
+### Step 2: Build and start
 
 ```bash
-docker build -t dockyard .
-docker run -d \
-  --name dockyard \
-  -p 8080:8080 \
-  -v /var/run/docker.sock:/var/run/docker.sock:ro \
-  -v dockyard-data:/app/data \
-  dockyard --web-ui --web-ui-port 8080
+docker compose up -d --build
 ```
 
-### Binary
+This builds the image and starts Dockyard on port **8082**.
+
+### Step 3: Open the web UI
+
+Navigate to `http://<your-server-ip>:8080` in your browser. On first launch you will be prompted to create an admin account.
+
+### Step 4: Stop watchtower (if running)
+
+Dockyard replaces watchtower. If you have watchtower running, stop and remove it:
 
 ```bash
-# Build from source
-go build -o dockyard .
+docker stop watchtower && docker rm watchtower
+```
 
-# Run
-./dockyard --web-ui --web-ui-port 8080 --schedule "0 3 * * *"
+### Step 5: Configure via proxy (optional)
+
+If you use nginx-proxy-manager or another reverse proxy, add a new proxy host for Dockyard:
+
+| Field | Value |
+|-------|-------|
+| Domain | e.g. `dockyard.yourdomain.com` |
+| Forward Hostname / IP | `your-server-ip` |
+| Forward Port | `8082` |
+| WebSocket Support | Enabled |
+
+## Docker Compose
+
+The default `docker-compose.yml` maps Dockyard to port **8082** on localhost:
+
+```yaml
+services:
+  dockyard:
+    build: .
+    container_name: dockyard
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8082:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./data:/app/data
+    environment:
+      - DOCKER_HOST=unix:///var/run/docker.sock
+      - TZ=UTC
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "1.0"
+```
+
+To change the port, edit the `ports` mapping:
+
+```yaml
+ports:
+  - "9090:8080"   # external port : internal port
+```
+
+To expose on all interfaces (not recommended without auth):
+
+```yaml
+ports:
+  - "8082:8080"
 ```
 
 ## CLI Flags
