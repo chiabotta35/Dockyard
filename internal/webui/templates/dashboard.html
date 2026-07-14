@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{.Title}}</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://unpkg.com/htmx.org@1.9.12"></script>
     <script>
         tailwind.config = {
             darkMode: 'class',
@@ -20,13 +19,11 @@
     </script>
     <style>
         body { font-family: 'Inter', system-ui, -apple-system, sans-serif; }
-        .fade-in { animation: fadeIn 0.3s ease-in; }
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
         .status-pulse { animation: pulse 2s infinite; }
         @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
         .log-line { font-family: 'JetBrains Mono', 'Fira Code', monospace; }
-        details[open] summary .chevron { transform: rotate(90deg); }
-        .chevron { transition: transform 0.15s ease; }
+        .chevron { transition: transform 0.15s ease; display: inline-block; }
+        .chevron.open { transform: rotate(90deg); }
     </style>
 </head>
 <body class="bg-gray-950 text-gray-100 min-h-screen">
@@ -39,16 +36,15 @@
                     <span class="text-xs text-gray-500 bg-gray-800 px-2 py-0.5 rounded-full">v{{.Version}}</span>
                 </div>
                 <div class="flex items-center gap-1">
-                    <a href="/" class="px-3 py-1.5 rounded-md text-sm font-medium {{if eq .ActivePage "dashboard"}}bg-gray-800 text-white{{else}}text-gray-400 hover:text-white hover:bg-gray-800/50{{end}}">Dashboard</a>
-                    <a href="/settings" class="px-3 py-1.5 rounded-md text-sm font-medium {{if eq .ActivePage "settings"}}bg-gray-800 text-white{{else}}text-gray-400 hover:text-white hover:bg-gray-800/50{{end}}">Settings</a>
-                    <a href="/history" class="px-3 py-1.5 rounded-md text-sm font-medium {{if eq .ActivePage "history"}}bg-gray-800 text-white{{else}}text-gray-400 hover:text-white hover:bg-gray-800/50{{end}}">History</a>
+                    <a href="/" class="px-3 py-1.5 rounded-md text-sm font-medium bg-gray-800 text-white">Dashboard</a>
+                    <a href="/settings" class="px-3 py-1.5 rounded-md text-sm font-medium text-gray-400 hover:text-white hover:bg-gray-800/50">Settings</a>
+                    <a href="/history" class="px-3 py-1.5 rounded-md text-sm font-medium text-gray-400 hover:text-white hover:bg-gray-800/50">History</a>
                 </div>
             </div>
         </div>
     </nav>
 
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-        <!-- Header -->
         <div class="flex items-center justify-between mb-6">
             <div>
                 <h1 class="text-2xl font-bold">Container Dashboard</h1>
@@ -56,7 +52,7 @@
             </div>
             <div class="flex items-center gap-3">
                 <span id="update-eta" class="text-sm text-gray-400 hidden"></span>
-                <button id="self-update-btn" onclick="selfUpdate()" class="hidden bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2">
+                <button id="self-update-btn" onclick="selfUpdate()" class="hidden bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors items-center gap-2">
                     <span>&#8635;</span>
                     <span id="self-update-text">Update Dockyard</span>
                 </button>
@@ -67,18 +63,17 @@
             </div>
         </div>
 
-        <!-- Stats bar -->
-        <div class="grid grid-cols-4 gap-4 mb-6" id="stats-bar">
+        <div class="grid grid-cols-4 gap-4 mb-6">
             <div class="bg-gray-900 border border-gray-800 rounded-xl p-4">
-                <div class="text-sm text-gray-500">Total Containers</div>
+                <div class="text-sm text-gray-500">Total</div>
                 <div class="text-2xl font-bold mt-1" id="stat-total">-</div>
             </div>
             <div class="bg-gray-900 border border-gray-800 rounded-xl p-4">
-                <div class="text-sm text-gray-500">Updates Available</div>
+                <div class="text-sm text-gray-500">Updates</div>
                 <div class="text-2xl font-bold mt-1 text-amber-400" id="stat-updates">-</div>
             </div>
             <div class="bg-gray-900 border border-gray-800 rounded-xl p-4">
-                <div class="text-sm text-gray-500">Auto-Update</div>
+                <div class="text-sm text-gray-500">Auto</div>
                 <div class="text-2xl font-bold mt-1 text-emerald-400" id="stat-auto">-</div>
             </div>
             <div class="bg-gray-900 border border-gray-800 rounded-xl p-4">
@@ -87,17 +82,13 @@
             </div>
         </div>
 
-        <!-- Filter tabs -->
         <div class="flex items-center gap-1 mb-4 border-b border-gray-800 pb-px" id="filter-tabs">
-            <button class="filter-tab px-3 py-1.5 text-sm rounded-t-md border-b-2 transition-colors text-white border-dock-500" data-filter="all" onclick="filterContainers('all', this)">All</button>
-            <button class="filter-tab px-3 py-1.5 text-sm rounded-t-md border-b-2 transition-colors text-gray-500 border-transparent hover:text-gray-300" data-filter="updates" onclick="filterContainers('updates', this)">Updates Available</button>
-            <button class="filter-tab px-3 py-1.5 text-sm rounded-t-md border-b-2 transition-colors text-gray-500 border-transparent hover:text-gray-300" data-filter="up-to-date" onclick="filterContainers('up-to-date', this)">Up to Date</button>
-            <button class="filter-tab px-3 py-1.5 text-sm rounded-t-md border-b-2 transition-colors text-gray-500 border-transparent hover:text-gray-300" data-filter="deferred" onclick="filterContainers('deferred', this)">Deferred</button>
-            <button class="filter-tab px-3 py-1.5 text-sm rounded-t-md border-b-2 transition-colors text-gray-500 border-transparent hover:text-gray-300" data-filter="auto" onclick="filterContainers('auto', this)">Auto-Update</button>
-            <button class="filter-tab px-3 py-1.5 text-sm rounded-t-md border-b-2 transition-colors text-gray-500 border-transparent hover:text-gray-300" data-filter="ignored" onclick="filterContainers('ignored', this)">Ignored</button>
+            <button class="filter-tab px-3 py-1.5 text-sm rounded-t-md border-b-2 transition-colors text-white border-dock-500" data-filter="all" onclick="setFilter('all', this)">All</button>
+            <button class="filter-tab px-3 py-1.5 text-sm rounded-t-md border-b-2 transition-colors text-gray-500 border-transparent hover:text-gray-300" data-filter="updates" onclick="setFilter('updates', this)">Updates</button>
+            <button class="filter-tab px-3 py-1.5 text-sm rounded-t-md border-b-2 transition-colors text-gray-500 border-transparent hover:text-gray-300" data-filter="auto" onclick="setFilter('auto', this)">Auto</button>
+            <button class="filter-tab px-3 py-1.5 text-sm rounded-t-md border-b-2 transition-colors text-gray-500 border-transparent hover:text-gray-300" data-filter="deferred" onclick="setFilter('deferred', this)">Deferred</button>
         </div>
 
-        <!-- Container list -->
         <div id="container-grid" class="space-y-2">
             <div class="text-center py-12 text-gray-500">
                 <div class="animate-spin text-2xl mb-2">&#8635;</div>
@@ -107,348 +98,392 @@
     </div>
 
     <script>
-        let currentFilter = 'all';
-        let cachedContainers = [];
-        let isLoading = false;
-        let containerLogs = {};
-        let updateStartTime = null;
-        let updateTotalContainers = 0;
-        let updateCompletedContainers = 0;
-        let expandedContainer = null;
+    (function() {
+        var currentFilter = 'all';
+        var containers = [];
+        var expanded = {};
+        var containerLogs = {};
+        var updateTotal = 0;
+        var updateDone = 0;
+        var updateStart = null;
 
-        function escapeHtml(str) {
-            if (!str) return '';
-            var div = document.createElement('div');
-            div.appendChild(document.createTextNode(str));
-            return div.innerHTML;
+        function esc(s) {
+            if (!s) return '';
+            var d = document.createElement('div');
+            d.appendChild(document.createTextNode(s));
+            return d.innerHTML;
         }
 
-        function renderFromCache() {
-            document.getElementById('container-grid').innerHTML = renderContainerList(cachedContainers);
-            if (expandedContainer) {
-                var el = document.getElementById('detail-' + expandedContainer);
-                if (el) el.style.display = 'block';
-                var logEl = document.getElementById('logs-' + expandedContainer);
-                if (logEl && containerLogs[expandedContainer]) {
-                    renderContainerLogs(expandedContainer);
-                }
-            }
+        function truncate(s, n) {
+            return s && s.length > n ? s.substring(0, n) + '...' : (s || '');
         }
 
-        function filterContainers(filter, btn) {
-            currentFilter = filter;
-            document.querySelectorAll('.filter-tab').forEach(t => {
-                t.className = t.className.replace(/text-white border-dock-500/g, 'text-gray-500 border-transparent');
-            });
-            btn.className = btn.className.replace(/text-gray-500 border-transparent/g, 'text-white border-dock-500');
-            renderFromCache();
+        function getFiltered() {
+            if (currentFilter === 'updates') return containers.filter(function(c) { return c.stale; });
+            if (currentFilter === 'auto') return containers.filter(function(c) { return c.update_mode === 'auto'; });
+            if (currentFilter === 'deferred') return containers.filter(function(c) { return c.is_deferred; });
+            return containers;
         }
 
-        function renderContainerList(data) {
-            if (!data || !Array.isArray(data) || data.length === 0) {
-                return '<div class="text-center py-12 text-gray-500">No containers found</div>';
-            }
+        function updateStats() {
+            document.getElementById('stat-total').textContent = containers.length;
+            document.getElementById('stat-updates').textContent = containers.filter(function(c) { return c.stale; }).length;
+            document.getElementById('stat-auto').textContent = containers.filter(function(c) { return c.update_mode === 'auto'; }).length;
+            document.getElementById('stat-deferred').textContent = containers.filter(function(c) { return c.is_deferred; }).length;
+        }
 
-            let filtered = data;
-            if (currentFilter === 'updates') filtered = data.filter(c => c.stale);
-            else if (currentFilter === 'up-to-date') filtered = data.filter(c => !c.stale);
-            else if (currentFilter === 'deferred') filtered = data.filter(c => c.is_deferred);
-            else if (currentFilter === 'auto') filtered = data.filter(c => c.update_mode === 'auto');
-            else if (currentFilter === 'ignored') filtered = data.filter(c => c.update_mode === 'ignore');
+        function buildCard(c) {
+            var n = esc(c.name);
+            var isExpanded = expanded[c.name];
+            var statusDot = c.stale ? 'bg-amber-400 status-pulse' : (c.state === 'running' ? 'bg-emerald-400' : 'bg-red-400');
+            var stateBadge = c.state === 'running' ? '<span class="text-xs text-emerald-400">&#9679; running</span>' : '<span class="text-xs text-red-400">&#9679; stopped</span>';
+            var modeIcon = c.update_mode === 'auto' ? '&#9889;' : (c.update_mode === 'ignore' ? '&#128683;' : '&#9998;');
+            var modeColor = c.update_mode === 'auto' ? 'text-emerald-400' : (c.update_mode === 'ignore' ? 'text-red-400' : 'text-amber-400');
+            var modeLabel = c.update_mode === 'auto' ? 'Auto' : (c.update_mode === 'ignore' ? 'Ignore' : 'Manual');
+            var deferBadge = c.is_deferred ? '<span class="text-xs bg-purple-500/20 text-purple-400 px-2 py-0.5 rounded-full ml-2">Deferred</span>' : '';
+            var stackBadge = c.compose_stack ? '<span class="text-xs bg-dock-500/20 text-dock-500 px-2 py-0.5 rounded-full">' + esc(c.compose_stack) + '</span>' : '';
 
-            if (filtered.length === 0) {
-                return '<div class="text-center py-12 text-gray-500">No containers match this filter</div>';
-            }
-
-            let total = data.length;
-            let stale = data.filter(c => c.stale).length;
-            let auto = data.filter(c => c.update_mode === 'auto').length;
-            let deferred = data.filter(c => c.is_deferred).length;
-
-            document.getElementById('stat-total').textContent = total;
-            document.getElementById('stat-updates').textContent = stale;
-            document.getElementById('stat-auto').textContent = auto;
-            document.getElementById('stat-deferred').textContent = deferred;
-
-            return filtered.map(c => {
-                let safeName = escapeHtml(c.name);
-                let statusDot = c.stale ? 'bg-amber-400 status-pulse' : (c.state === 'running' ? 'bg-emerald-400' : 'bg-red-400');
-                let statusText = c.stale ? 'Update Available' : (c.state === 'running' ? 'Up to Date' : 'Stopped');
-                let stateBadge = c.state === 'running' ? '<span class="text-xs text-emerald-400">&#9679; running</span>' : '<span class="text-xs text-red-400">&#9679; stopped</span>';
-
-                let modeIcon = c.update_mode === 'auto' ? '&#9889;' : (c.update_mode === 'ignore' ? '&#128683;' : '&#9998;');
-                let modeColor = c.update_mode === 'auto' ? 'text-emerald-400' : (c.update_mode === 'ignore' ? 'text-red-400' : 'text-amber-400');
-                let modeLabel = c.update_mode === 'auto' ? 'Auto' : (c.update_mode === 'ignore' ? 'Ignore' : 'Manual');
-
-                let deferBadge = c.is_deferred ? '<span class="text-xs bg-purple-500/20 text-purple-400 px-2 py-0.5 rounded-full ml-2">Deferred ' + escapeHtml(c.defer_until) + '</span>' : '';
-                let stackBadge = c.compose_stack ? '<span class="text-xs bg-dock-500/20 text-dock-500 px-2 py-0.5 rounded-full">' + escapeHtml(c.compose_stack) + '</span>' : '';
-
-                let actionBtns = '';
+            var actionBtns = '';
+            if (c.stale) {
                 if (c.is_self) {
-                    actionBtns += '<button onclick="event.stopPropagation(); triggerUpdate(\'' + safeName + '\')" class="bg-dock-600 hover:bg-dock-700 text-white px-3 py-1.5 rounded-lg text-xs font-medium transition-colors" title="Updates Dockyard itself (new container starts first, then this one stops)">Update Dockyard</button>';
+                    actionBtns += '<button onclick="event.stopPropagation(); triggerUpdate(\'' + n + '\')" class="bg-dock-600 hover:bg-dock-700 text-white px-3 py-1.5 rounded-lg text-xs font-medium transition-colors" title="Updates Dockyard itself">Update Dockyard</button>';
                 } else if (c.update_mode !== 'ignore') {
-                    actionBtns += '<button onclick="event.stopPropagation(); triggerUpdate(\'' + safeName + '\')" class="bg-dock-600 hover:bg-dock-700 text-white px-3 py-1.5 rounded-lg text-xs font-medium transition-colors">Update</button>';
+                    actionBtns += '<button onclick="event.stopPropagation(); triggerUpdate(\'' + n + '\')" class="bg-dock-600 hover:bg-dock-700 text-white px-3 py-1.5 rounded-lg text-xs font-medium transition-colors">Update</button>';
                 }
-                if (c.has_previous_image) {
-                    actionBtns += '<button onclick="event.stopPropagation(); rollbackContainer(\'' + safeName + '\')" class="bg-amber-600 hover:bg-amber-700 text-white px-3 py-1.5 rounded-lg text-xs font-medium transition-colors" title="Rollback to ' + escapeHtml(c.previous_image) + '">Rollback</button>';
-                }
+            }
+            if (c.has_previous_image) {
+                actionBtns += '<button onclick="event.stopPropagation(); rollbackContainer(\'' + n + '\')" class="bg-amber-600 hover:bg-amber-700 text-white px-3 py-1.5 rounded-lg text-xs font-medium transition-colors" title="Rollback">Rollback</button>';
+            }
 
-                let deferBtns = '';
-                if (c.update_mode !== 'ignore') {
-                    if (!c.is_deferred) {
-                        deferBtns = '<div class="flex gap-1">' +
-                            '<button onclick="event.stopPropagation(); deferContainer(\'' + safeName + '\', 7)" class="text-xs bg-gray-800 hover:bg-gray-700 text-gray-300 px-2 py-1 rounded">7d</button>' +
-                            '<button onclick="event.stopPropagation(); deferContainer(\'' + safeName + '\', 14)" class="text-xs bg-gray-800 hover:bg-gray-700 text-gray-300 px-2 py-1 rounded">14d</button>' +
-                            '<button onclick="event.stopPropagation(); deferContainer(\'' + safeName + '\', 30)" class="text-xs bg-gray-800 hover:bg-gray-700 text-gray-300 px-2 py-1 rounded">30d</button></div>';
-                    } else {
-                        deferBtns = '<button onclick="event.stopPropagation(); cancelDefer(\'' + safeName + '\')" class="text-xs bg-purple-500/20 hover:bg-purple-500/30 text-purple-400 px-2 py-1 rounded">Cancel Defer</button>';
-                    }
-                }
+            var logCount = (containerLogs[c.name] || []).length;
+            var logBadge = logCount > 0 ? '<span class="text-xs text-gray-600 ml-2">' + logCount + '</span>' : '';
 
-                let logCount = (containerLogs[c.name] || []).length;
-                let logBadge = logCount > 0 ? '<span class="text-xs text-gray-600 ml-2">' + logCount + ' lines</span>' : '';
+            var html = '<div id="card-' + n + '" class="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">'
+                + '<div class="p-4 cursor-pointer hover:bg-gray-900/50 transition-colors" onclick="toggleDetail(\'' + n + '\')">'
+                + '<div class="flex items-start justify-between">'
+                + '<div class="flex-1 min-w-0">'
+                + '<div class="flex items-center gap-2 mb-1">'
+                + '<span id="chevron-' + n + '" class="chevron text-gray-600 text-xs' + (isExpanded ? ' open' : '') + '">&#9654;</span>'
+                + '<div class="w-2.5 h-2.5 rounded-full ' + statusDot + '"></div>'
+                + '<h3 class="font-semibold text-white truncate">' + n + '</h3>'
+                + (c.is_self ? '<span class="text-xs bg-blue-500/20 text-blue-400 px-2 py-0.5 rounded-full">Self</span>' : '')
+                + stackBadge + deferBadge + logBadge
+                + '</div>'
+                + '<p class="text-xs text-gray-500 font-mono truncate ml-7 mb-1">' + esc(c.image) + '</p>'
+                + '<div class="flex items-center gap-3 text-xs text-gray-500 ml-7">'
+                + stateBadge
+                + '<span>' + esc(c.ports) + '</span>'
+                + '</div>'
+                + '</div>'
+                + '<div class="flex items-center gap-2 ml-4">'
+                + '<span class="' + modeColor + ' text-sm" title="' + modeLabel + '">' + modeIcon + '</span>'
+                + actionBtns
+                + '</div>'
+                + '</div>'
+                + '</div>'
+                + '<div id="detail-' + n + '" class="border-t border-gray-800' + (isExpanded ? '' : ' hidden') + '">'
+                + '<div class="p-4 space-y-4">'
+                + '<div class="grid grid-cols-2 md:grid-cols-4 gap-3">'
+                + '<div><div class="text-xs text-gray-500">Image</div><div class="text-sm font-mono text-gray-300 truncate" title="' + esc(c.image) + '">' + esc(c.image) + '</div></div>'
+                + '<div><div class="text-xs text-gray-500">Image ID</div><div class="text-sm font-mono text-gray-300">' + esc(truncate(c.image_id, 19)) + '</div></div>'
+                + '<div><div class="text-xs text-gray-500">State</div><div class="text-sm text-gray-300">' + (c.state === 'running' ? 'Running' : 'Stopped') + '</div></div>'
+                + '<div><div class="text-xs text-gray-500">Mode</div><div class="text-sm text-gray-300">' + modeLabel + '</div></div>'
+                + (c.compose_stack ? '<div><div class="text-xs text-gray-500">Stack</div><div class="text-sm text-gray-300">' + esc(c.compose_stack) + '</div></div>' : '')
+                + (c.ports ? '<div><div class="text-xs text-gray-500">Ports</div><div class="text-sm font-mono text-gray-300">' + esc(c.ports) + '</div></div>' : '')
+                + (c.is_deferred ? '<div><div class="text-xs text-gray-500">Deferred Until</div><div class="text-sm text-purple-400">' + esc(c.defer_until) + '</div></div>' : '')
+                + (c.has_previous_image ? '<div class="col-span-2"><div class="text-xs text-gray-500">Previous Image</div><div class="text-sm font-mono text-amber-400">' + esc(c.previous_image) + '</div></div>' : '')
+                + (c.is_self ? '<div class="col-span-2 bg-blue-500/10 border border-blue-500/30 rounded-lg p-2"><div class="text-xs text-blue-400">This is Dockyard. Updating starts a replacement first, then stops this one.</div></div>' : '')
+                + '</div>'
+                + '<div class="flex items-center gap-3">'
+                + '<select onchange="setMode(\'' + n + '\', this.value)" class="bg-gray-800 border border-gray-700 text-gray-300 text-xs rounded-lg px-2 py-1">'
+                + '<option value="manual"' + (c.update_mode === 'manual' ? ' selected' : '') + '>Manual</option>'
+                + '<option value="auto"' + (c.update_mode === 'auto' ? ' selected' : '') + '>Auto</option>'
+                + '<option value="ignore"' + (c.update_mode === 'ignore' ? ' selected' : '') + '>Ignore</option>'
+                + '</select>'
+                + (c.update_mode !== 'ignore' ? (
+                    c.is_deferred
+                        ? '<button onclick="cancelDefer(\'' + n + '\')" class="text-xs bg-purple-500/20 hover:bg-purple-500/30 text-purple-400 px-2 py-1 rounded">Cancel Defer</button>'
+                        : '<div class="flex gap-1">'
+                            + '<button onclick="deferContainer(\'' + n + '\', 7)" class="text-xs bg-gray-800 hover:bg-gray-700 text-gray-300 px-2 py-1 rounded">7d</button>'
+                            + '<button onclick="deferContainer(\'' + n + '\', 14)" class="text-xs bg-gray-800 hover:bg-gray-700 text-gray-300 px-2 py-1 rounded">14d</button>'
+                            + '<button onclick="deferContainer(\'' + n + '\', 30)" class="text-xs bg-gray-800 hover:bg-gray-700 text-gray-300 px-2 py-1 rounded">30d</button>'
+                            + '</div>'
+                ) : '')
+                + '</div>'
+                + '<div class="bg-gray-950 border border-gray-800 rounded-lg overflow-hidden">'
+                + '<div class="flex items-center justify-between px-3 py-2 border-b border-gray-800">'
+                + '<span class="text-xs font-medium text-gray-400">Logs</span>'
+                + '<button onclick="clearLogs(\'' + n + '\')" class="text-xs text-gray-600 hover:text-gray-400">Clear</button>'
+                + '</div>'
+                + '<div id="log-content-' + n + '" class="max-h-64 overflow-y-auto p-3 space-y-0.5 text-xs log-line">'
+                + renderLogLines(c.name)
+                + '</div>'
+                + '</div>'
+                + '</div>'
+                + '</div>'
+                + '</div>';
+            return html;
+        }
 
-                return '<div class="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden fade-in">' +
-                    '<div class="p-4 cursor-pointer hover:bg-gray-900/50 transition-colors" onclick="toggleDetail(\'' + safeName + '\')">' +
-                    '<div class="flex items-start justify-between">' +
-                    '<div class="flex-1 min-w-0">' +
-                    '<div class="flex items-center gap-2 mb-1">' +
-                    '<span class="chevron text-gray-600 text-xs inline-block">&#9654;</span>' +
-                    '<div class="w-2.5 h-2.5 rounded-full ' + statusDot + '"></div>' +
-                    '<h3 class="font-semibold text-white truncate">' + safeName + '</h3>' +
-                    (c.is_self ? '<span class="text-xs bg-blue-500/20 text-blue-400 px-2 py-0.5 rounded-full">Self</span>' : '') +
-                    stackBadge + deferBadge + logBadge +
-                    '</div>' +
-                    '<p class="text-xs text-gray-500 font-mono truncate ml-7 mb-1">' + escapeHtml(c.image) + '</p>' +
-                    '<div class="flex items-center gap-3 text-xs text-gray-500 ml-7">' +
-                    stateBadge +
-                    '<span>' + escapeHtml(c.ports) + '</span>' +
-                    '</div>' +
-                    '</div>' +
-                    '<div class="flex items-center gap-2 ml-4">' +
-                    '<span class="' + modeColor + ' text-sm" title="' + modeLabel + '">' + modeIcon + '</span>' +
-                    actionBtns +
-                    '</div>' +
-                    '</div>' +
-                    '</div>' +
-                    // Detail panel (hidden by default)
-                    '<div id="detail-' + safeName + '" class="hidden border-t border-gray-800">' +
-                    '<div class="p-4 space-y-4">' +
-                    // Info grid
-                    '<div class="grid grid-cols-2 md:grid-cols-4 gap-3">' +
-                    '<div><div class="text-xs text-gray-500">Image</div><div class="text-sm font-mono text-gray-300 truncate" title="' + escapeHtml(c.image) + '">' + escapeHtml(c.image) + '</div></div>' +
-                    '<div><div class="text-xs text-gray-500">Image ID</div><div class="text-sm font-mono text-gray-300">' + escapeHtml(truncate(c.image_id, 19)) + '</div></div>' +
-                    '<div><div class="text-xs text-gray-500">State</div><div class="text-sm text-gray-300">' + (c.state === 'running' ? 'Running' : 'Stopped') + '</div></div>' +
-                    '<div><div class="text-xs text-gray-500">Mode</div><div class="text-sm text-gray-300">' + modeLabel + '</div></div>' +
-                    (c.compose_stack ? '<div><div class="text-xs text-gray-500">Stack</div><div class="text-sm text-gray-300">' + escapeHtml(c.compose_stack) + '</div></div>' : '') +
-                    (c.ports ? '<div><div class="text-xs text-gray-500">Ports</div><div class="text-sm font-mono text-gray-300">' + escapeHtml(c.ports) + '</div></div>' : '') +
-                    (c.is_deferred ? '<div><div class="text-xs text-gray-500">Deferred Until</div><div class="text-sm text-purple-400">' + escapeHtml(c.defer_until) + '</div></div>' : '') +
-                    (c.has_previous_image ? '<div class="col-span-2"><div class="text-xs text-gray-500">Previous Image (rollback available)</div><div class="text-sm font-mono text-amber-400">' + escapeHtml(c.previous_image) + '</div></div>' : '') +
-                    (c.is_self ? '<div class="col-span-2 bg-blue-500/10 border border-blue-500/30 rounded-lg p-2"><div class="text-xs text-blue-400">This is Dockyard. Updating will start a replacement container first, then stop this one.</div></div>' : '') +
-                    '</div>' +
-                    // Mode selector + defer
-                    '<div class="flex items-center gap-3">' +
-                    '<select onchange="setMode(\'' + safeName + '\', this.value)" class="bg-gray-800 border border-gray-700 text-gray-300 text-xs rounded-lg px-2 py-1">' +
-                    '<option value="manual"' + (c.update_mode === 'manual' ? ' selected' : '') + '>Manual</option>' +
-                    '<option value="auto"' + (c.update_mode === 'auto' ? ' selected' : '') + '>Auto-Update</option>' +
-                    '<option value="ignore"' + (c.update_mode === 'ignore' ? ' selected' : '') + '>Ignore</option>' +
-                    '</select>' +
-                    deferBtns +
-                    '</div>' +
-                    // Per-container log panel
-                    '<div id="logs-' + safeName + '" class="bg-gray-950 border border-gray-800 rounded-lg overflow-hidden">' +
-                    '<div class="flex items-center justify-between px-3 py-2 border-b border-gray-800">' +
-                    '<span class="text-xs font-medium text-gray-400">Logs</span>' +
-                    '<button onclick="clearContainerLogs(\'' + safeName + '\')" class="text-xs text-gray-600 hover:text-gray-400">Clear</button>' +
-                    '</div>' +
-                    '<div id="log-content-' + safeName + '" class="max-h-64 overflow-y-auto p-3 space-y-0.5 text-xs log-line">' +
-                    '<div class="text-gray-600">No logs yet</div>' +
-                    '</div>' +
-                    '</div>' +
-                    '</div>' +
-                    '</div>' +
-                    '</div>';
+        function renderLogLines(name) {
+            var logs = containerLogs[name] || [];
+            if (logs.length === 0) return '<div class="text-gray-600">No logs yet</div>';
+            return logs.map(function(l) {
+                return '<div class="text-gray-500">' + esc(l.time) + ' <span class="text-dock-400">' + esc(l.msg) + '</span></div>';
             }).join('');
         }
 
-        function truncate(str, n) {
-            if (!str) return '';
-            return str.length > n ? str.substring(0, n) + '...' : str;
+        function renderList() {
+            var filtered = getFiltered();
+            var grid = document.getElementById('container-grid');
+            if (filtered.length === 0) {
+                grid.innerHTML = '<div class="text-center py-12 text-gray-500">No containers match this filter</div>';
+            } else {
+                grid.innerHTML = filtered.map(buildCard).join('');
+            }
+            updateStats();
         }
 
-        function toggleDetail(name) {
-            var el = document.getElementById('detail-' + name);
-            if (!el) return;
-            var isHidden = el.classList.contains('hidden');
-            if (isHidden) {
-                el.classList.remove('hidden');
-                expandedContainer = name;
-            } else {
-                el.classList.add('hidden');
-                if (expandedContainer === name) expandedContainer = null;
+        // --- Surgical updates: never re-render the full list ---
+
+        function updateCardStatus(name, stale, state) {
+            var card = document.getElementById('card-' + name);
+            if (!card) return;
+            var dot = card.querySelector('.rounded-full');
+            if (dot) {
+                dot.className = 'w-2.5 h-2.5 rounded-full ' + (stale ? 'bg-amber-400 status-pulse' : (state === 'running' ? 'bg-emerald-400' : 'bg-red-400'));
             }
         }
 
-        function setMode(name, mode) {
+        function updateCardButtons(name, stale, isSelf, mode) {
+            var card = document.getElementById('card-' + name);
+            if (!card) return;
+            var btnsContainer = card.querySelector('.flex.items-center.gap-2.ml-4');
+            if (!btnsContainer) return;
+            var existingBtns = btnsContainer.querySelectorAll('button');
+            var rollbackBtn = null;
+            existingBtns.forEach(function(b) { if (b.textContent === 'Rollback') rollbackBtn = b; });
+            var newBtns = '';
+            if (stale) {
+                if (isSelf) {
+                    newBtns += '<button onclick="event.stopPropagation(); triggerUpdate(\'' + name + '\')" class="bg-dock-600 hover:bg-dock-700 text-white px-3 py-1.5 rounded-lg text-xs font-medium transition-colors" title="Updates Dockyard itself">Update Dockyard</button>';
+                } else if (mode !== 'ignore') {
+                    newBtns += '<button onclick="event.stopPropagation(); triggerUpdate(\'' + name + '\')" class="bg-dock-600 hover:bg-dock-700 text-white px-3 py-1.5 rounded-lg text-xs font-medium transition-colors">Update</button>';
+                }
+            }
+            if (rollbackBtn) newBtns += rollbackBtn.outerHTML;
+            // keep mode icon
+            var modeSpan = btnsContainer.querySelector('span');
+            btnsContainer.innerHTML = (modeSpan ? modeSpan.outerHTML : '') + newBtns;
+        }
+
+        function updateStats() {
+            document.getElementById('stat-total').textContent = containers.length;
+            document.getElementById('stat-updates').textContent = containers.filter(function(c) { return c.stale; }).length;
+            document.getElementById('stat-auto').textContent = containers.filter(function(c) { return c.update_mode === 'auto'; }).length;
+            document.getElementById('stat-deferred').textContent = containers.filter(function(c) { return c.is_deferred; }).length;
+        }
+
+        // --- Public functions (called from onclick) ---
+
+        window.setFilter = function(filter, btn) {
+            currentFilter = filter;
+            document.querySelectorAll('.filter-tab').forEach(function(t) {
+                t.className = t.className.replace(/text-white border-dock-500/g, 'text-gray-500 border-transparent');
+            });
+            btn.className = btn.className.replace(/text-gray-500 border-transparent/g, 'text-white border-dock-500');
+            renderList();
+        };
+
+        window.toggleDetail = function(name) {
+            var el = document.getElementById('detail-' + name);
+            var chevron = document.getElementById('chevron-' + name);
+            if (!el) return;
+            if (el.classList.contains('hidden')) {
+                el.classList.remove('hidden');
+                if (chevron) chevron.classList.add('open');
+                expanded[name] = true;
+            } else {
+                el.classList.add('hidden');
+                if (chevron) chevron.classList.remove('open');
+                delete expanded[name];
+            }
+        };
+
+        window.setMode = function(name, mode) {
             fetch('/api/containers/' + name + '/mode', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({mode: mode})
-            }).then(() => refreshContainers());
-        }
+            }).then(function() { refreshContainers(); });
+        };
 
-        function triggerUpdate(name) {
+        window.triggerUpdate = function(name) {
             fetch('/api/containers/' + name + '/update', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'}
-            }).then(() => {
+            }).then(function() {
                 if (!containerLogs[name]) containerLogs[name] = [];
-                expandedContainer = name;
-                refreshContainers(true);
+                expanded[name] = true;
             });
-        }
+        };
 
-        function rollbackContainer(name) {
-            if (!confirm('Rollback ' + name + ' to its previous version?')) return;
+        window.rollbackContainer = function(name) {
+            if (!confirm('Rollback ' + name + '?')) return;
             fetch('/api/containers/' + name + '/rollback', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'}
-            }).then(r => r.json()).then(data => {
+            }).then(function(r) { return r.json(); }).then(function(data) {
                 if (!containerLogs[name]) containerLogs[name] = [];
-                containerLogs[name].push({time: new Date().toLocaleTimeString(), msg: 'Rolling back to: ' + (data.target_image || 'previous version')});
-                renderContainerLogs(name);
-                expandedContainer = name;
+                containerLogs[name].push({time: new Date().toLocaleTimeString(), msg: 'Rolling back to: ' + (data.target_image || 'previous')});
+                renderLogPanel(name);
+                expanded[name] = true;
                 var el = document.getElementById('detail-' + name);
                 if (el) el.classList.remove('hidden');
+                var ch = document.getElementById('chevron-' + name);
+                if (ch) ch.classList.add('open');
             });
-        }
+        };
 
-        function deferContainer(name, days) {
+        window.deferContainer = function(name, days) {
             fetch('/api/containers/' + name + '/defer', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({days: days})
-            }).then(() => refreshContainers());
-        }
+            }).then(function() { refreshContainers(); });
+        };
 
-        function cancelDefer(name) {
+        window.cancelDefer = function(name) {
             fetch('/api/containers/' + name + '/cancel-defer', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'}
-            }).then(() => refreshContainers());
-        }
+            }).then(function() { refreshContainers(); });
+        };
 
-        function checkAll() {
-            var btn = document.getElementById('check-btn');
-            var spinner = document.getElementById('check-spinner');
-            btn.disabled = true;
-            spinner.classList.remove('hidden');
+        window.clearLogs = function(name) {
+            containerLogs[name] = [];
+            renderLogPanel(name);
+        };
 
+        window.checkAll = function() {
+            document.getElementById('check-btn').disabled = true;
+            document.getElementById('check-spinner').classList.remove('hidden');
             fetch('/api/check', { method: 'POST' })
-                .then(r => r.json())
-                .then(data => {
-                    btn.disabled = false;
-                    spinner.classList.add('hidden');
-                    cachedContainers = data;
-                    lastDataHash = dataHash(data);
-                    renderFromCache();
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    document.getElementById('check-btn').disabled = false;
+                    document.getElementById('check-spinner').classList.add('hidden');
+                    containers = data;
+                    renderList();
+                    autoUpdateStale();
                 })
-                .catch(() => {
-                    btn.disabled = false;
-                    spinner.classList.add('hidden');
+                .catch(function() {
+                    document.getElementById('check-btn').disabled = false;
+                    document.getElementById('check-spinner').classList.add('hidden');
                 });
-        }
+        };
 
-        // Per-container log rendering
-        function renderContainerLogs(name) {
+        window.selfUpdate = function() {
+            if (!confirm('Update Dockyard? Container will restart.')) return;
+            var btn = document.getElementById('self-update-btn');
+            btn.disabled = true;
+            document.getElementById('self-update-text').textContent = 'Updating...';
+            fetch('/api/update/self', { method: 'POST' }).then(function() {}).catch(function() {});
+        };
+
+        function renderLogPanel(name) {
             var el = document.getElementById('log-content-' + name);
             if (!el) return;
-            var logs = containerLogs[name] || [];
-            if (logs.length === 0) {
-                el.innerHTML = '<div class="text-gray-600">No logs yet</div>';
-                return;
-            }
-            el.innerHTML = logs.map(l =>
-                '<div class="text-gray-500">' + escapeHtml(l.time) + ' <span class="text-dock-400">' + escapeHtml(l.msg) + '</span></div>'
-            ).join('');
+            el.innerHTML = renderLogLines(name);
             el.scrollTop = el.scrollHeight;
         }
 
-        function clearContainerLogs(name) {
-            containerLogs[name] = [];
-            renderContainerLogs(name);
-        }
-
-        function addContainerLog(name, msg) {
+        function addLog(name, msg) {
+            if (!name) return;
             if (!containerLogs[name]) containerLogs[name] = [];
             containerLogs[name].push({time: new Date().toLocaleTimeString(), msg: msg});
-            if (expandedContainer === name) {
-                renderContainerLogs(name);
-            }
-            // Also update log count badge
-            renderFromCache();
+            if (expanded[name]) renderLogPanel(name);
         }
 
-        // ETA tracking
         function updateETA() {
             var etaEl = document.getElementById('update-eta');
-            if (!updateStartTime || updateCompletedContainers >= updateTotalContainers) {
+            if (!updateStart || updateDone >= updateTotal) {
                 etaEl.classList.add('hidden');
                 return;
             }
-            var elapsed = (Date.now() - updateStartTime) / 1000;
-            var perContainer = elapsed / updateCompletedContainers;
-            var remaining = (updateTotalContainers - updateCompletedContainers) * perContainer;
+            var elapsed = (Date.now() - updateStart) / 1000;
+            var perContainer = elapsed / updateDone;
+            var remaining = (updateTotal - updateDone) * perContainer;
             var mins = Math.floor(remaining / 60);
             var secs = Math.floor(remaining % 60);
-            etaEl.textContent = 'ETA: ' + (mins > 0 ? mins + 'm ' : '') + secs + 's (' + updateCompletedContainers + '/' + updateTotalContainers + ')';
+            etaEl.textContent = 'ETA: ' + (mins > 0 ? mins + 'm ' : '') + secs + 's (' + updateDone + '/' + updateTotal + ')';
             etaEl.classList.remove('hidden');
         }
 
-        // SSE for live events
-        const eventSource = new EventSource('/api/events');
+        function dataHash(data) {
+            return JSON.stringify(data.map(function(c) { return [c.name, c.stale, c.state, c.update_mode, c.is_deferred]; }));
+        }
+
+        var lastHash = '';
+        var isLoading = false;
+
+        function refreshContainers() {
+            if (isLoading) return;
+            isLoading = true;
+            fetch('/api/containers')
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    containers = data;
+                    isLoading = false;
+                    renderList();
+                })
+                .catch(function() { isLoading = false; });
+        }
+
+        function autoUpdateStale() {
+            containers.forEach(function(c) {
+                if (c.stale && c.update_mode === 'auto' && !c.is_self && !c.is_deferred) {
+                    triggerUpdate(c.name);
+                }
+            });
+        }
+
+        // --- SSE ---
+        var eventSource = new EventSource('/api/events');
 
         eventSource.addEventListener('log_line', function(e) {
-            const data = JSON.parse(e.data);
-            var name = data.container || '';
-            var msg = data.message || '';
-            if (name) {
-                addContainerLog(name, msg);
-            }
+            var data = JSON.parse(e.data);
+            addLog(data.container, data.message);
         });
 
         eventSource.addEventListener('update_started', function(e) {
-            const data = JSON.parse(e.data);
-            var name = data.container || '';
-            if (name) {
-                addContainerLog(name, 'Update started');
-            }
+            var data = JSON.parse(e.data);
+            addLog(data.container, 'Update started');
         });
 
         eventSource.addEventListener('update_complete', function(e) {
-            const data = JSON.parse(e.data);
-            var name = data.container || '';
-            if (name) {
-                addContainerLog(name, 'Update complete');
-                updateCompletedContainers++;
-                updateETA();
-                refreshContainers(true);
-            }
+            var data = JSON.parse(e.data);
+            var name = data.container;
+            addLog(name, 'Update complete');
+            updateDone++;
+            updateETA();
+            // Refresh just this card from server
+            fetch('/api/containers').then(function(r) { return r.json(); }).then(function(data) {
+                containers = data;
+                var c = containers.find(function(x) { return x.name === name; });
+                if (c) {
+                    updateCardStatus(name, c.stale, c.state);
+                    updateCardButtons(name, c.stale, c.is_self, c.update_mode);
+                }
+                updateStats();
+            });
         });
 
         eventSource.addEventListener('update_failed', function(e) {
-            const data = JSON.parse(e.data);
-            var name = data.container || '';
-            if (name) {
-                addContainerLog(name, 'Update failed');
-                updateCompletedContainers++;
-                updateETA();
-            }
-            var btn = document.getElementById('self-update-btn');
-            if (btn) {
-                btn.disabled = false;
-                document.getElementById('self-update-text').textContent = 'Update Failed - Retry';
-            }
+            var data = JSON.parse(e.data);
+            addLog(data.container, 'Update failed');
+            updateDone++;
+            updateETA();
         });
 
         eventSource.addEventListener('scan_started', function(e) {
@@ -459,64 +494,55 @@
         eventSource.addEventListener('scan_complete', function(e) {
             document.getElementById('check-btn').disabled = false;
             document.getElementById('check-spinner').classList.add('hidden');
-            refreshContainers(true);
+            refreshContainers();
         });
 
-        // Background refresh
-        let lastDataHash = '';
+        // Initial load
+        refreshContainers();
 
-        function dataHash(data) {
-            return JSON.stringify(data.map(c => [c.name, c.stale, c.state, c.update_mode, c.is_deferred]));
-        }
-
-        function refreshContainers(force) {
+        // Silent background refresh every 60s (no flash)
+        setInterval(function() {
             if (isLoading) return;
             isLoading = true;
             fetch('/api/containers')
-                .then(r => r.json())
-                .then(data => {
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
                     var hash = dataHash(data);
-                    cachedContainers = data;
-                    if (force || hash !== lastDataHash) {
-                        lastDataHash = hash;
-                        renderFromCache();
-                    }
+                    containers = data;
                     isLoading = false;
+                    if (hash !== lastHash) {
+                        lastHash = hash;
+                        renderList();
+                    }
                 })
-                .catch(() => { isLoading = false; });
-        }
+                .catch(function() { isLoading = false; });
+        }, 60000);
 
-        // Initial load + silent background refresh every 30s
-        refreshContainers(true);
-        setInterval(function() { refreshContainers(false); }, 30000);
+        // Auto-check staleness every 12 hours
+        setInterval(function() {
+            fetch('/api/check', { method: 'POST' })
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    containers = data;
+                    renderList();
+                    autoUpdateStale();
+                })
+                .catch(function() {});
+        }, 12 * 60 * 60 * 1000);
 
         // Check for Dockyard self-updates on load
-        checkForSelfUpdate();
-
-        function checkForSelfUpdate() {
-            fetch('/api/update/check')
-                .then(r => r.json())
-                .then(data => {
-                    if (data.available) {
-                        var btn = document.getElementById('self-update-btn');
-                        btn.classList.remove('hidden');
-                        document.getElementById('self-update-text').textContent = 'Update to ' + escapeHtml(data.latest_version);
-                        btn.title = data.body ? data.body.substring(0, 200) : 'Update available';
-                    }
-                })
-                .catch(() => {});
-        }
-
-        function selfUpdate() {
-            if (!confirm('Update Dockyard to the latest version? The container will restart automatically.')) return;
-            var btn = document.getElementById('self-update-btn');
-            btn.disabled = true;
-            document.getElementById('self-update-text').textContent = 'Updating...';
-            fetch('/api/update/self', { method: 'POST' })
-                .then(r => r.json())
-                .then(() => {})
-                .catch(() => {});
-        }
+        fetch('/api/update/check')
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.available) {
+                    var btn = document.getElementById('self-update-btn');
+                    btn.classList.remove('hidden');
+                    document.getElementById('self-update-text').textContent = 'Update to ' + esc(data.latest_version);
+                    btn.title = data.body ? data.body.substring(0, 200) : 'Update available';
+                }
+            })
+            .catch(function() {});
+    })();
     </script>
 </body>
 </html>
