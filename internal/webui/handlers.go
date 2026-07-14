@@ -177,7 +177,7 @@ func (s *Server) handleUpdateContainer(w http.ResponseWriter, r *http.Request, n
 func (s *Server) performContainerUpdate(name string) {
 	startTime := time.Now()
 	s.events.Broadcast(Event{Type: EventUpdateStarted, Container: name, Message: "Updating"})
-	s.events.BroadcastLog(name, "Pulling latest image...")
+	s.events.BroadcastLog(name, "Checking for updates...")
 
 	ctx := context.Background()
 
@@ -214,6 +214,31 @@ func (s *Server) performContainerUpdate(name string) {
 		return
 	}
 
+	isSelf := s.selfContainerID != "" && string(target.ID()) == s.selfContainerID
+
+	// For self-update, check GitHub version first to avoid unnecessary pull.
+	if isSelf {
+		s.events.BroadcastLog(name, "Checking GitHub for new version...")
+		updateInfo, err := CheckForUpdate(s.version)
+		if err != nil {
+			s.events.BroadcastLog(name, "Version check failed: "+err.Error())
+		} else if !updateInfo.Available {
+			elapsed := time.Since(startTime).Truncate(time.Millisecond)
+			s.events.BroadcastLog(name, fmt.Sprintf("Already on latest version %s (%s)", s.version, elapsed))
+			s.events.Broadcast(Event{Type: EventUpdateComplete, Container: name, Message: "Up to date"})
+			s.state.MarkUpdated(name)
+			s.state.AddHistory(HistoryEntry{
+				Container: name,
+				Timestamp: time.Now(),
+				Status:    "success",
+				Duration:  time.Since(startTime),
+			})
+			return
+		} else {
+			s.events.BroadcastLog(name, fmt.Sprintf("New version available: %s (current: %s)", updateInfo.LatestVer, s.version))
+		}
+	}
+
 	stale, newImage, err := s.client.IsContainerStale(ctx, target, types.UpdateParams{})
 	if err != nil {
 		s.events.BroadcastLog(name, "Staleness check failed: "+err.Error())
@@ -236,8 +261,6 @@ func (s *Server) performContainerUpdate(name string) {
 	}
 
 	s.events.BroadcastLog(name, "New image available: "+newImage.ShortID())
-
-	isSelf := s.selfContainerID != "" && string(target.ID()) == s.selfContainerID
 
 	if isSelf {
 		s.events.BroadcastLog(name, "Self-update detected — starting new container first, then stopping this one")
