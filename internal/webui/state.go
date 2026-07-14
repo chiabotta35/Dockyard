@@ -22,16 +22,18 @@ const (
 )
 
 type ContainerState struct {
-	UpdateMode    UpdateMode `json:"update_mode"`
-	DeferUntil    *time.Time `json:"defer_until,omitempty"`
-	ChangelogURL  string     `json:"changelog_url,omitempty"`
-	LastUpdated   *time.Time `json:"last_updated,omitempty"`
-	PreviousImage string     `json:"previous_image,omitempty"`
-	PreviousImageID string   `json:"previous_image_id,omitempty"`
-	CheckError    string     `json:"check_error,omitempty"`
-	IsStale       bool       `json:"is_stale,omitempty"`
-	CheckedAt     *time.Time `json:"checked_at,omitempty"`
-	LatestImage   string     `json:"latest_image,omitempty"`
+	UpdateMode       UpdateMode `json:"update_mode"`
+	DeferUntil       *time.Time `json:"defer_until,omitempty"`
+	ChangelogURL     string     `json:"changelog_url,omitempty"`
+	LastUpdated      *time.Time `json:"last_updated,omitempty"`
+	PreviousImage    string     `json:"previous_image,omitempty"`
+	PreviousImageID  string     `json:"previous_image_id,omitempty"`
+	CheckError       string     `json:"check_error,omitempty"`
+	IsStale          bool       `json:"is_stale,omitempty"`
+	CheckedAt        *time.Time `json:"checked_at,omitempty"`
+	LatestImage      string     `json:"latest_image,omitempty"`
+	UpdateDetectedAt *time.Time `json:"update_detected_at,omitempty"`
+	LastMentionAt    *time.Time `json:"last_mention_at,omitempty"`
 }
 
 type Settings struct {
@@ -422,6 +424,58 @@ func (s *State) ClearCheckResult(name string) error {
 	}
 	s.mu.Unlock()
 	return s.save()
+}
+
+func (s *State) MarkUpdateDetected(name string) {
+	s.mu.Lock()
+	cs, ok := s.Containers[name]
+	if !ok {
+		cs = &ContainerState{UpdateMode: ModeManual}
+		s.Containers[name] = cs
+	}
+	if cs.UpdateDetectedAt == nil {
+		now := time.Now()
+		cs.UpdateDetectedAt = &now
+	}
+	s.mu.Unlock()
+	s.save()
+}
+
+func (s *State) ClearUpdateDetected(name string) {
+	s.mu.Lock()
+	if cs, ok := s.Containers[name]; ok {
+		cs.UpdateDetectedAt = nil
+		cs.LastMentionAt = nil
+	}
+	s.mu.Unlock()
+	s.save()
+}
+
+func (s *State) ShouldMention(name string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	cs, ok := s.Containers[name]
+	if !ok || cs.UpdateDetectedAt == nil {
+		return false
+	}
+	detected := *cs.UpdateDetectedAt
+	if time.Since(detected) < 24*time.Hour {
+		return false
+	}
+	if cs.LastMentionAt == nil {
+		return true
+	}
+	return time.Since(*cs.LastMentionAt) >= 7*24*time.Hour
+}
+
+func (s *State) MarkMentioned(name string) {
+	s.mu.Lock()
+	if cs, ok := s.Containers[name]; ok {
+		now := time.Now()
+		cs.LastMentionAt = &now
+	}
+	s.mu.Unlock()
+	s.save()
 }
 
 func (s *State) loadLogs() {

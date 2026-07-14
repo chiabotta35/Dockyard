@@ -297,6 +297,7 @@ func (s *Server) performContainerUpdate(name string) {
 		elapsed := time.Since(startTime).Truncate(time.Millisecond)
 		s.events.BroadcastLog(name, fmt.Sprintf("Self-update complete (%s) — container is restarting", elapsed))
 		s.state.MarkUpdated(name)
+		s.state.ClearUpdateDetected(name)
 		s.state.AddHistory(HistoryEntry{
 			Container: name,
 			Timestamp: time.Now(),
@@ -341,6 +342,7 @@ func (s *Server) performContainerUpdate(name string) {
 	s.events.BroadcastLog(name, fmt.Sprintf("Update complete (%s)", elapsed))
 	s.events.Broadcast(Event{Type: EventUpdateComplete, Container: name, Message: "Done"})
 	s.state.MarkUpdated(name)
+	s.state.ClearUpdateDetected(name)
 	s.state.AddHistory(HistoryEntry{
 		Container: name,
 		Timestamp: time.Now(),
@@ -619,9 +621,11 @@ func (s *Server) handleAPICheckNow(w http.ResponseWriter, r *http.Request) {
 			s.events.BroadcastLog(containers[res.index].Name, "Update available")
 			details = append(details, checkDetail{name: containers[res.index].Name, image: containers[res.index].Image, stale: true})
 			s.state.SaveCheckResult(containers[res.index].Name, true, "", "")
+			s.state.MarkUpdateDetected(containers[res.index].Name)
 		} else {
 			upToDate++
 			s.state.SaveCheckResult(containers[res.index].Name, false, "", "")
+			s.state.ClearUpdateDetected(containers[res.index].Name)
 		}
 	}
 
@@ -648,6 +652,21 @@ func (s *Server) sendCheckNotification(updates, errors, upToDate, total int, det
 	now := time.Now().UTC().Format("2006-01-02 15:04 UTC")
 	var msgParts []string
 
+	// Determine if we need to @everyone
+	shouldMention := errors > 0 // always @ for errors
+	if !shouldMention {
+		for _, d := range details {
+			if d.stale && s.state.ShouldMention(d.name) {
+				shouldMention = true
+				break
+			}
+		}
+	}
+
+	if shouldMention {
+		msgParts = append(msgParts, "@everyone")
+	}
+
 	// Header
 	header := fmt.Sprintf("Dockyard Scan \u2014 %s", now)
 	msgParts = append(msgParts, header)
@@ -659,12 +678,11 @@ func (s *Server) sendCheckNotification(updates, errors, upToDate, total int, det
 		msgParts = append(msgParts, fmt.Sprintf("\u2B50 **%d update(s) available:**", updates))
 		for _, d := range details {
 			if d.stale {
+				s.state.MarkMentioned(d.name)
 				msgParts = append(msgParts, fmt.Sprintf("  \u2022 **%s**", d.name))
 				msgParts = append(msgParts, fmt.Sprintf("    Image: `%s`", d.image))
 			}
 		}
-		msgParts = append(msgParts, "")
-		msgParts = append(msgParts, "Manage updates: open Dockyard dashboard")
 		msgParts = append(msgParts, "")
 	}
 
@@ -793,11 +811,16 @@ func (s *Server) runAutoCheck(ctx context.Context) {
 		if res.err != "" {
 			failed++
 			details = append(details, checkDetail{name: containers[res.index].Name, image: containers[res.index].Image, errMsg: res.err})
+			s.state.SaveCheckResult(containers[res.index].Name, false, res.err, "")
 		} else if res.stale {
 			stale++
 			details = append(details, checkDetail{name: containers[res.index].Name, image: containers[res.index].Image, stale: true})
+			s.state.SaveCheckResult(containers[res.index].Name, true, "", "")
+			s.state.MarkUpdateDetected(containers[res.index].Name)
 		} else {
 			upToDate++
+			s.state.SaveCheckResult(containers[res.index].Name, false, "", "")
+			s.state.ClearUpdateDetected(containers[res.index].Name)
 		}
 	}
 
