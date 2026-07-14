@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{.Title}}</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        dock: { 50: '#f0f9ff', 100: '#e0f2fe', 500: '#0ea5e9', 600: '#0284c7', 700: '#0369a1' }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body { font-family: 'Inter', system-ui, -apple-system, sans-serif; }
+    </style>
+</head>
+<body class="bg-gray-950 text-gray-100 min-h-screen">
+    <nav class="bg-gray-900 border-b border-gray-800 sticky top-0 z-50">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex items-center justify-between h-14">
+                <div class="flex items-center gap-3">
+                    <div class="text-dock-500 text-xl">&#9875;</div>
+                    <span class="text-lg font-bold tracking-tight">Dockyard</span>
+                </div>
+                <div class="flex items-center gap-1">
+                    <a href="/" class="px-3 py-1.5 rounded-md text-sm font-medium text-gray-400 hover:text-white hover:bg-gray-800/50">Dashboard</a>
+                    <a href="/settings" class="px-3 py-1.5 rounded-md text-sm font-medium bg-gray-800 text-white">Settings</a>
+                    <a href="/history" class="px-3 py-1.5 rounded-md text-sm font-medium text-gray-400 hover:text-white hover:bg-gray-800/50">History</a>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <div class="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        <h1 class="text-2xl font-bold mb-6">Settings</h1>
+
+        <form id="settings-form" onsubmit="saveSettings(event)" class="space-y-6">
+            <!-- Schedule -->
+            <div class="bg-gray-900 border border-gray-800 rounded-xl p-6">
+                <h2 class="text-lg font-semibold mb-4">Schedule &amp; Timing</h2>
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-400 mb-1">Cron Schedule</label>
+                        <input type="text" name="schedule" value="{{.Settings.Schedule}}" class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:ring-dock-500 focus:border-dock-500" placeholder="0 3 * * *">
+                        <p class="text-xs text-gray-600 mt-1">Default: 0 3 * * * (daily at 3am)</p>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-400 mb-1">Timezone</label>
+                        <input type="text" name="timezone" value="{{.Settings.Timezone}}" class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:ring-dock-500 focus:border-dock-500" placeholder="UTC">
+                        <p class="text-xs text-gray-600 mt-1">IANA timezone (e.g. America/New_York)</p>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-400 mb-1">Cooldown Delay</label>
+                        <input type="text" name="cooldown_delay" value="{{.Settings.CooldownDelay}}" class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:ring-dock-500 focus:border-dock-500" placeholder="0s">
+                        <p class="text-xs text-gray-600 mt-1">Min image age before update (e.g. 24h, 3d, 1w)</p>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-400 mb-1">Stop Timeout</label>
+                        <input type="text" name="stop_timeout" value="{{.Settings.StopTimeout}}" class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:ring-dock-500 focus:border-dock-500" placeholder="30s">
+                        <p class="text-xs text-gray-600 mt-1">How long to wait when stopping containers</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Update Behavior -->
+            <div class="bg-gray-900 border border-gray-800 rounded-xl p-6">
+                <h2 class="text-lg font-semibold mb-4">Update Behavior</h2>
+                <div class="space-y-3">
+                    <label class="flex items-center justify-between p-3 bg-gray-800/50 rounded-lg cursor-pointer">
+                        <div>
+                            <div class="text-sm font-medium">Cleanup Old Images</div>
+                            <div class="text-xs text-gray-500">Remove old images after successful update</div>
+                        </div>
+                        <input type="checkbox" name="cleanup" {{if .Settings.Cleanup}}checked{{end}} class="w-4 h-4 text-dock-500 bg-gray-700 border-gray-600 rounded focus:ring-dock-500">
+                    </label>
+                    <label class="flex items-center justify-between p-3 bg-gray-800/50 rounded-lg cursor-pointer">
+                        <div>
+                            <div class="text-sm font-medium">Monitor Only</div>
+                            <div class="text-xs text-gray-500">Only monitor, never automatically update</div>
+                        </div>
+                        <input type="checkbox" name="monitor_only" {{if .Settings.MonitorOnly}}checked{{end}} class="w-4 h-4 text-dock-500 bg-gray-700 border-gray-600 rounded focus:ring-dock-500">
+                    </label>
+                    <label class="flex items-center justify-between p-3 bg-gray-800/50 rounded-lg cursor-pointer">
+                        <div>
+                            <div class="text-sm font-medium">Rolling Restart</div>
+                            <div class="text-xs text-gray-500">Update containers one at a time instead of all at once</div>
+                        </div>
+                        <input type="checkbox" name="rolling_restart" {{if .Settings.RollingRestart}}checked{{end}} class="w-4 h-4 text-dock-500 bg-gray-700 border-gray-600 rounded focus:ring-dock-500">
+                    </label>
+                    <label class="flex items-center justify-between p-3 bg-gray-800/50 rounded-lg cursor-pointer">
+                        <div>
+                            <div class="text-sm font-medium">Lifecycle Hooks</div>
+                            <div class="text-xs text-gray-500">Enable pre/post update lifecycle hooks</div>
+                        </div>
+                        <input type="checkbox" name="lifecycle_hooks" {{if .Settings.LifecycleHooks}}checked{{end}} class="w-4 h-4 text-dock-500 bg-gray-700 border-gray-600 rounded focus:ring-dock-500">
+                    </label>
+                    <label class="flex items-center justify-between p-3 bg-gray-800/50 rounded-lg cursor-pointer">
+                        <div>
+                            <div class="text-sm font-medium">Update On Start</div>
+                            <div class="text-xs text-gray-500">Check for updates immediately when Dockyard starts</div>
+                        </div>
+                        <input type="checkbox" name="update_on_start" {{if .Settings.UpdateOnStart}}checked{{end}} class="w-4 h-4 text-dock-500 bg-gray-700 border-gray-600 rounded focus:ring-dock-500">
+                    </label>
+                </div>
+            </div>
+
+            <!-- Backup & Rollback -->
+            <div class="bg-gray-900 border border-gray-800 rounded-xl p-6">
+                <h2 class="text-lg font-semibold mb-4">Backup &amp; Rollback</h2>
+                <div class="space-y-4">
+                    <label class="flex items-center justify-between p-3 bg-gray-800/50 rounded-lg cursor-pointer">
+                        <div>
+                            <div class="text-sm font-medium">Backup Retention</div>
+                            <div class="text-xs text-gray-500">Keep old containers after successful updates for rollback</div>
+                        </div>
+                        <input type="checkbox" name="backup_retention" {{if .Settings.BackupRetention}}checked{{end}} class="w-4 h-4 text-dock-500 bg-gray-700 border-gray-600 rounded focus:ring-dock-500">
+                    </label>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-400 mb-1">Backup Window (hours)</label>
+                        <input type="number" name="backup_window_hours" value="{{.Settings.BackupWindowHours}}" min="1" max="720" class="w-48 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:ring-dock-500 focus:border-dock-500">
+                        <p class="text-xs text-gray-600 mt-1">How long to keep backups (1-720 hours)</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Notifications -->
+            <div class="bg-gray-900 border border-gray-800 rounded-xl p-6">
+                <h2 class="text-lg font-semibold mb-4">Notifications</h2>
+                <div>
+                    <label class="block text-sm font-medium text-gray-400 mb-1">Notification URL</label>
+                    <input type="text" name="notification_url" value="{{.Settings.NotificationURL}}" class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:ring-dock-500 focus:border-dock-500" placeholder="discord://webhookid/webhooktoken">
+                    <p class="text-xs text-gray-600 mt-1">Shoutrrr URL (ntfy://, discord://, slack://, email://, etc.)</p>
+                </div>
+            </div>
+
+            <div class="flex justify-end">
+                <button type="submit" class="bg-dock-600 hover:bg-dock-700 text-white px-6 py-2 rounded-lg text-sm font-medium transition-colors">
+                    Save Settings
+                </button>
+            </div>
+        </form>
+
+        <div id="save-toast" class="fixed bottom-4 right-4 bg-emerald-500/90 text-white px-4 py-2 rounded-lg text-sm font-medium hidden transition-opacity">
+            Settings saved successfully
+        </div>
+    </div>
+
+    <script>
+        function saveSettings(e) {
+            e.preventDefault();
+            const form = document.getElementById('settings-form');
+            const data = {
+                schedule: form.schedule.value,
+                timezone: form.timezone.value,
+                cleanup: form.cleanup.checked,
+                cooldown_delay: form.cooldown_delay.value,
+                stop_timeout: form.stop_timeout.value,
+                backup_retention: form.backup_retention.checked,
+                backup_window_hours: parseInt(form.backup_window_hours.value) || 24,
+                monitor_only: form.monitor_only.checked,
+                rolling_restart: form.rolling_restart.checked,
+                lifecycle_hooks: form.lifecycle_hooks.checked,
+                notification_url: form.notification_url.value,
+                update_on_start: form.update_on_start.checked
+            };
+
+            fetch('/api/settings', {
+                method: 'PUT',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(data)
+            }).then(r => r.json()).then(() => {
+                const toast = document.getElementById('save-toast');
+                toast.classList.remove('hidden');
+                setTimeout(() => toast.classList.add('hidden'), 3000);
+            });
+        }
+    </script>
+</body>
+</html>

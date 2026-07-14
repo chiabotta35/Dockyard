@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{.Title}}</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+    <script src="https://unpkg.com/htmx.org@1.9.12/dist/ext/sse.js"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        dock: { 50: '#f0f9ff', 100: '#e0f2fe', 500: '#0ea5e9', 600: '#0284c7', 700: '#0369a1', 800: '#075985', 900: '#0c4a6e', 950: '#082f49' }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        [x-cloak] { display: none !important; }
+        .htmx-indicator { display: none; }
+        .htmx-request .htmx-indicator { display: inline-block; }
+        .htmx-request.htmx-indicator { display: inline-block; }
+        body { font-family: 'Inter', system-ui, -apple-system, sans-serif; }
+        .fade-in { animation: fadeIn 0.3s ease-in; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
+        .status-pulse { animation: pulse 2s infinite; }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+        .log-scroll { max-height: 400px; overflow-y: auto; scrollbar-width: thin; }
+    </style>
+</head>
+<body class="bg-gray-950 text-gray-100 min-h-screen">
+    <!-- Nav -->
+    <nav class="bg-gray-900 border-b border-gray-800 sticky top-0 z-50">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex items-center justify-between h-14">
+                <div class="flex items-center gap-3">
+                    <div class="text-dock-500 text-xl">&#9875;</div>
+                    <span class="text-lg font-bold tracking-tight">Dockyard</span>
+                    <span class="text-xs text-gray-500 bg-gray-800 px-2 py-0.5 rounded-full">v{{.Version}}</span>
+                </div>
+                <div class="flex items-center gap-1">
+                    <a href="/" class="px-3 py-1.5 rounded-md text-sm font-medium {{if eq .ActivePage "dashboard"}}bg-gray-800 text-white{{else}}text-gray-400 hover:text-white hover:bg-gray-800/50{{end}}">Dashboard</a>
+                    <a href="/settings" class="px-3 py-1.5 rounded-md text-sm font-medium {{if eq .ActivePage "settings"}}bg-gray-800 text-white{{else}}text-gray-400 hover:text-white hover:bg-gray-800/50{{end}}">Settings</a>
+                    <a href="/history" class="px-3 py-1.5 rounded-md text-sm font-medium {{if eq .ActivePage "history"}}bg-gray-800 text-white{{else}}text-gray-400 hover:text-white hover:bg-gray-800/50{{end}}">History</a>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        <!-- Header -->
+        <div class="flex items-center justify-between mb-6">
+            <div>
+                <h1 class="text-2xl font-bold">Container Dashboard</h1>
+                <p class="text-sm text-gray-500 mt-0.5">Monitor and manage Docker container updates</p>
+            </div>
+            <div class="flex items-center gap-3">
+                <button hx-post="/api/check" hx-swap="none" hx-on::after-request="htmx.trigger('#container-grid', 'refresh')" class="bg-dock-600 hover:bg-dock-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2">
+                    <span class="htmx-indicator animate-spin">&#8635;</span>
+                    <span>Check Now</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- Stats bar -->
+        <div class="grid grid-cols-4 gap-4 mb-6" id="stats-bar">
+            <div class="bg-gray-900 border border-gray-800 rounded-xl p-4">
+                <div class="text-sm text-gray-500">Total Containers</div>
+                <div class="text-2xl font-bold mt-1" id="stat-total">-</div>
+            </div>
+            <div class="bg-gray-900 border border-gray-800 rounded-xl p-4">
+                <div class="text-sm text-gray-500">Updates Available</div>
+                <div class="text-2xl font-bold mt-1 text-amber-400" id="stat-updates">-</div>
+            </div>
+            <div class="bg-gray-900 border border-gray-800 rounded-xl p-4">
+                <div class="text-sm text-gray-500">Auto-Update</div>
+                <div class="text-2xl font-bold mt-1 text-emerald-400" id="stat-auto">-</div>
+            </div>
+            <div class="bg-gray-900 border border-gray-800 rounded-xl p-4">
+                <div class="text-sm text-gray-500">Deferred</div>
+                <div class="text-2xl font-bold mt-1 text-purple-400" id="stat-deferred">-</div>
+            </div>
+        </div>
+
+        <!-- Filter tabs -->
+        <div class="flex items-center gap-1 mb-4 border-b border-gray-800 pb-px" id="filter-tabs">
+            <button class="filter-tab px-3 py-1.5 text-sm rounded-t-md border-b-2 transition-colors text-white border-dock-500" data-filter="all" onclick="filterContainers('all', this)">All</button>
+            <button class="filter-tab px-3 py-1.5 text-sm rounded-t-md border-b-2 transition-colors text-gray-500 border-transparent hover:text-gray-300" data-filter="updates" onclick="filterContainers('updates', this)">Updates Available</button>
+            <button class="filter-tab px-3 py-1.5 text-sm rounded-t-md border-b-2 transition-colors text-gray-500 border-transparent hover:text-gray-300" data-filter="up-to-date" onclick="filterContainers('up-to-date', this)">Up to Date</button>
+            <button class="filter-tab px-3 py-1.5 text-sm rounded-t-md border-b-2 transition-colors text-gray-500 border-transparent hover:text-gray-300" data-filter="deferred" onclick="filterContainers('deferred', this)">Deferred</button>
+            <button class="filter-tab px-3 py-1.5 text-sm rounded-t-md border-b-2 transition-colors text-gray-500 border-transparent hover:text-gray-300" data-filter="auto" onclick="filterContainers('auto', this)">Auto-Update</button>
+            <button class="filter-tab px-3 py-1.5 text-sm rounded-t-md border-b-2 transition-colors text-gray-500 border-transparent hover:text-gray-300" data-filter="ignored" onclick="filterContainers('ignored', this)">Ignored</button>
+        </div>
+
+        <!-- Container grid -->
+        <div id="container-grid" class="space-y-3" hx-get="/api/containers" hx-trigger="every 10s" hx-swap="innerHTML">
+            <div class="text-center py-12 text-gray-500">
+                <div class="animate-spin text-2xl mb-2">&#8635;</div>
+                Loading containers...
+            </div>
+        </div>
+
+        <!-- Update log panel -->
+        <div id="log-panel" class="mt-6 bg-gray-900 border border-gray-800 rounded-xl overflow-hidden hidden">
+            <div class="flex items-center justify-between px-4 py-3 border-b border-gray-800">
+                <h3 class="text-sm font-semibold text-gray-300">Live Update Log</h3>
+                <button onclick="toggleLog()" class="text-gray-500 hover:text-white text-sm">Close</button>
+            </div>
+            <div id="log-content" class="log-scroll p-4 font-mono text-xs text-gray-400 space-y-1"></div>
+        </div>
+    </div>
+
+    <script>
+        let currentFilter = 'all';
+
+        function escapeHtml(str) {
+            if (!str) return '';
+            var div = document.createElement('div');
+            div.appendChild(document.createTextNode(str));
+            return div.innerHTML;
+        }
+
+        function filterContainers(filter, btn) {
+            currentFilter = filter;
+            document.querySelectorAll('.filter-tab').forEach(t => {
+                t.className = t.className.replace(/text-white border-dock-500/g, 'text-gray-500 border-transparent');
+            });
+            btn.className = btn.className.replace(/text-gray-500 border-transparent/g, 'text-white border-dock-500');
+            htmx.trigger('#container-grid', 'refresh');
+        }
+
+        function renderContainerList(data) {
+            if (!data || !Array.isArray(data)) {
+                data = JSON.parse(document.getElementById('container-grid').getAttribute('hx-get'));
+                return '<div class="text-center py-12 text-gray-500">No containers found</div>';
+            }
+
+            let filtered = data;
+            if (currentFilter === 'updates') filtered = data.filter(c => c.stale);
+            else if (currentFilter === 'up-to-date') filtered = data.filter(c => !c.stale);
+            else if (currentFilter === 'deferred') filtered = data.filter(c => c.is_deferred);
+            else if (currentFilter === 'auto') filtered = data.filter(c => c.update_mode === 'auto');
+            else if (currentFilter === 'ignored') filtered = data.filter(c => c.update_mode === 'ignore');
+
+            if (filtered.length === 0) {
+                return '<div class="text-center py-12 text-gray-500">No containers match this filter</div>';
+            }
+
+            let total = data.length;
+            let stale = data.filter(c => c.stale).length;
+            let auto = data.filter(c => c.update_mode === 'auto').length;
+            let deferred = data.filter(c => c.is_deferred).length;
+
+            document.getElementById('stat-total').textContent = total;
+            document.getElementById('stat-updates').textContent = stale;
+            document.getElementById('stat-auto').textContent = auto;
+            document.getElementById('stat-deferred').textContent = deferred;
+
+            return filtered.map(c => {
+                let statusColor = c.stale ? 'bg-amber-500/10 border-amber-500/30' : 'bg-gray-800/50 border-gray-800';
+                let statusDot = c.stale ? 'bg-amber-400 status-pulse' : (c.state === 'running' ? 'bg-emerald-400' : 'bg-red-400');
+                let statusText = c.stale ? 'Update Available' : (c.state === 'running' ? 'Up to Date' : 'Stopped');
+                let stateBadge = c.state === 'running' ? '<span class="text-xs text-emerald-400">&#9679; running</span>' : '<span class="text-xs text-red-400">&#9679; stopped</span>';
+
+                let modeIcon = c.update_mode === 'auto' ? '&#9889;' : (c.update_mode === 'ignore' ? '&#128683;' : '&#9998;');
+                let modeColor = c.update_mode === 'auto' ? 'text-emerald-400' : (c.update_mode === 'ignore' ? 'text-red-400' : 'text-amber-400');
+                let modeLabel = c.update_mode === 'auto' ? 'Auto' : (c.update_mode === 'ignore' ? 'Ignore' : 'Manual');
+
+                let deferBadge = c.is_deferred ? '<span class="text-xs bg-purple-500/20 text-purple-400 px-2 py-0.5 rounded-full">Deferred until ' + escapeHtml(c.defer_until) + '</span>' : '';
+                let stackBadge = c.compose_stack ? '<span class="text-xs bg-dock-500/20 text-dock-500 px-2 py-0.5 rounded-full">' + escapeHtml(c.compose_stack) + '</span>' : '';
+
+                let safeName = escapeHtml(c.name);
+                let updateBtn = c.update_mode !== 'ignore' ? '<button onclick="triggerUpdate(\'' + safeName + '\')" class="bg-dock-600 hover:bg-dock-700 text-white px-3 py-1.5 rounded-lg text-xs font-medium transition-colors">Update</button>' : '';
+
+                let deferBtns = c.update_mode !== 'ignore' && !c.is_deferred ?
+                    '<div class="flex gap-1"><button onclick="deferContainer(\'' + safeName + '\', 7)" class="text-xs bg-gray-800 hover:bg-gray-700 text-gray-300 px-2 py-1 rounded transition-colors">7d</button>' +
+                    '<button onclick="deferContainer(\'' + safeName + '\', 14)" class="text-xs bg-gray-800 hover:bg-gray-700 text-gray-300 px-2 py-1 rounded transition-colors">14d</button>' +
+                    '<button onclick="deferContainer(\'' + safeName + '\', 30)" class="text-xs bg-gray-800 hover:bg-gray-700 text-gray-300 px-2 py-1 rounded transition-colors">30d</button></div>'
+                    : (c.is_deferred ? '<button onclick="cancelDefer(\'' + safeName + '\')" class="text-xs bg-purple-500/20 hover:bg-purple-500/30 text-purple-400 px-2 py-1 rounded transition-colors">Cancel Defer</button>' : '');
+
+                return '<div class="bg-gray-900 border border-gray-800 rounded-xl p-4 fade-in ' + statusColor + '">' +
+                    '<div class="flex items-start justify-between">' +
+                    '<div class="flex-1 min-w-0">' +
+                    '<div class="flex items-center gap-2 mb-1">' +
+                    '<div class="w-2.5 h-2.5 rounded-full ' + statusDot + '"></div>' +
+                    '<h3 class="font-semibold text-white truncate">' + safeName + '</h3>' +
+                    stackBadge +
+                    '</div>' +
+                    '<p class="text-xs text-gray-500 font-mono truncate mb-1">' + escapeHtml(c.image) + '</p>' +
+                    '<div class="flex items-center gap-3 text-xs text-gray-500">' +
+                    stateBadge +
+                    '<span>' + escapeHtml(c.ports) + '</span>' +
+                    '<span>' + escapeHtml(c.created) + '</span>' +
+                    '</div>' +
+                    '</div>' +
+                    '<div class="flex items-center gap-2 ml-4">' +
+                    '<span class="' + modeColor + ' text-sm" title="Mode: ' + modeLabel + '">' + modeIcon + '</span>' +
+                    updateBtn +
+                    '</div>' +
+                    '</div>' +
+                    '<div class="flex items-center justify-between mt-3 pt-3 border-t border-gray-800/50">' +
+                    '<div class="flex items-center gap-2">' +
+                    '<select onchange="setMode(\'' + safeName + '\', this.value)" class="bg-gray-800 border border-gray-700 text-gray-300 text-xs rounded-lg px-2 py-1 focus:ring-dock-500 focus:border-dock-500">' +
+                    '<option value="manual"' + (c.update_mode === 'manual' ? ' selected' : '') + '>&#9998; Manual</option>' +
+                    '<option value="auto"' + (c.update_mode === 'auto' ? ' selected' : '') + '>&#9889; Auto-Update</option>' +
+                    '<option value="ignore"' + (c.update_mode === 'ignore' ? ' selected' : '') + '>&#128683; Ignore</option>' +
+                    '</select>' +
+                    deferBtns +
+                    '</div>' +
+                    '<div class="text-xs text-gray-600 font-mono">' + escapeHtml(truncate(c.image_id, 19)) + '</div>' +
+                    '</div>' +
+                    '</div>';
+            }).join('');
+        }
+
+        function truncate(str, n) {
+            if (!str) return '';
+            return str.length > n ? str.substring(0, n) + '...' : str;
+        }
+
+        function setMode(name, mode) {
+            fetch('/api/containers/' + name + '/mode', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({mode: mode})
+            }).then(() => htmx.trigger('#container-grid', 'refresh'));
+        }
+
+        function triggerUpdate(name) {
+            fetch('/api/containers/' + name + '/update', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'}
+            }).then(() => {
+                showLog();
+                htmx.trigger('#container-grid', 'refresh');
+            });
+        }
+
+        function deferContainer(name, days) {
+            fetch('/api/containers/' + name + '/defer', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({days: days})
+            }).then(() => htmx.trigger('#container-grid', 'refresh'));
+        }
+
+        function cancelDefer(name) {
+            fetch('/api/containers/' + name + '/cancel-defer', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'}
+            }).then(() => htmx.trigger('#container-grid', 'refresh'));
+        }
+
+        function showLog() {
+            document.getElementById('log-panel').classList.remove('hidden');
+        }
+
+        function toggleLog() {
+            document.getElementById('log-panel').classList.toggle('hidden');
+        }
+
+        // SSE for live events
+        const eventSource = new EventSource('/api/events');
+        eventSource.addEventListener('log_line', function(e) {
+            const data = JSON.parse(e.data);
+            const logEl = document.getElementById('log-content');
+            const line = document.createElement('div');
+            line.innerHTML = '<span class="text-gray-600">' + escapeHtml(new Date(data.timestamp).toLocaleTimeString()) + '</span> ' +
+                '<span class="text-dock-500">[' + escapeHtml(data.container || 'system') + ']</span> ' +
+                escapeHtml(data.message);
+            logEl.appendChild(line);
+            logEl.scrollTop = logEl.scrollHeight;
+        });
+
+        eventSource.addEventListener('update_started', function(e) {
+            const data = JSON.parse(e.data);
+            showLog();
+        });
+
+        eventSource.addEventListener('update_complete', function(e) {
+            htmx.trigger('#container-grid', 'refresh');
+        });
+
+        // Custom rendering for the container list
+        htmx.on('htmx:beforeSwap', function(e) {
+            if (e.detail.target.id === 'container-grid') {
+                e.detail.shouldSwap = true;
+                e.detail.serverResponse = '';
+            }
+        });
+
+        htmx.on('htmx:afterSwap', function(e) {
+            if (e.detail.target.id === 'container-grid') {
+                fetch('/api/containers')
+                    .then(r => r.json())
+                    .then(data => {
+                        e.detail.target.innerHTML = renderContainerList(data);
+                    });
+            }
+        });
+
+        // Initial load
+        fetch('/api/containers')
+            .then(r => r.json())
+            .then(data => {
+                document.getElementById('container-grid').innerHTML = renderContainerList(data);
+            });
+    </script>
+</body>
+</html>

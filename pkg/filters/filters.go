@@ -1,0 +1,573 @@
+package filters
+
+import (
+	"regexp"
+	"strings"
+
+	"github.com/sirupsen/logrus"
+
+	"github.com/dockyard/dockyard/pkg/types"
+)
+
+// noScope is the default scope value when none is specified.
+const noScope = "none"
+
+// WatchtowerContainersFilter selects only Watchtower containers.
+//
+// Returns:
+//   - bool: True if container is Watchtower, false otherwise.
+func WatchtowerContainersFilter(c types.FilterableContainer) bool {
+	clog := logrus.WithField("container", c.Name())
+	isWatchtower := c.IsWatchtower()
+	clog.WithField("is_watchtower", isWatchtower).Debug("Filtering for Watchtower container")
+
+	return isWatchtower
+}
+
+// UnscopedWatchtowerContainersFilter selects only unscoped Watchtower containers.
+//
+// Returns:
+//   - bool: True if container is Watchtower and has no scope or scope "none", false otherwise.
+func UnscopedWatchtowerContainersFilter(c types.FilterableContainer) bool {
+	clog := logrus.WithField("container", c.Name())
+
+	if !c.IsWatchtower() {
+		clog.Debug("Container is not Watchtower")
+
+		return false
+	}
+
+	containerScope, containerHasScope := c.Scope()
+	if !containerHasScope || containerScope == "" {
+		containerScope = noScope // Default to "none" if unset.
+	}
+
+	if containerScope == noScope {
+		clog.WithField("container_scope", containerScope).
+			Debug("Filtering for unscoped Watchtower container")
+
+		return true
+	}
+
+	clog.WithField("container_scope", containerScope).
+		Debug("Container has scope, excluding from unscoped filter")
+
+	return false
+}
+
+// ExcludeOldWatchtowerFilter rejects containers that are old Watchtower
+// containers renamed during self-update (prefixed with "watchtower-old-").
+//
+// These containers are predecessors that should only be removed, never updated
+// or included in update cycles. This filter ensures they are excluded from
+// regular container processing regardless of scope.
+//
+// Returns:
+//   - bool: True if the container should be included, false if it is an old
+//     Watchtower container that should be excluded.
+func ExcludeOldWatchtowerFilter(c types.FilterableContainer) bool {
+	if !c.IsWatchtower() {
+		return true
+	}
+
+	if IsOldWatchtower(c) {
+		logrus.WithField("container", c.Name()).
+			Debug("Excluding old Watchtower container from update cycle")
+
+		return false
+	}
+
+	return true
+}
+
+// IsOldWatchtower reports whether the container is an old Watchtower
+// container renamed during self-update (prefixed with "watchtower-old-").
+//
+// This is the positive counterpart to ExcludeOldWatchtowerFilter and is
+// intended for guard clauses where a positive check reads more naturally.
+//
+// Returns:
+//   - bool: True if the container is an old Watchtower container.
+func IsOldWatchtower(c types.FilterableContainer) bool {
+	return c.IsWatchtower() && strings.HasPrefix(strings.TrimLeft(c.Name(), "/"), types.WatchtowerOldPrefix)
+}
+
+// ExcludeOldWatchtowerFilterChain wraps a base filter with old
+// Watchtower exclusion. It chains the exclusion check before the base filter,
+// ensuring old Watchtower containers are rejected early in the pipeline.
+//
+// Parameters:
+//   - baseFilter: Base filter to chain.
+//
+// Returns:
+//   - types.Filter: Filter function that excludes old Watchtower containers
+//     and applies the base filter.
+func ExcludeOldWatchtowerFilterChain(baseFilter types.Filter) types.Filter {
+	return func(c types.FilterableContainer) bool {
+		if !ExcludeOldWatchtowerFilter(c) {
+			return false
+		}
+
+		return baseFilter(c)
+	}
+}
+
+// NoFilter allows all containers through.
+//
+// Returns:
+//   - bool: Always true.
+func NoFilter(c types.FilterableContainer) bool {
+	logrus.WithField("container", c.Name()).Debug("No filter applied")
+
+	return true
+}
+
+// FilterByNames selects containers matching specified names.
+//
+// Parameters:
+//   - normalizedNames: List of normalized names or regex patterns to match.
+//   - baseFilter: Base filter to chain.
+//
+// Returns:
+//   - types.Filter: Filter function combining name check with base filter.
+func FilterByNames(normalizedNames []string, baseFilter types.Filter) types.Filter {
+	if len(normalizedNames) == 0 {
+		return baseFilter
+	}
+
+	return func(c types.FilterableContainer) bool {
+		containerName := c.Name() // Normalized name
+		clog := logrus.WithFields(logrus.Fields{
+			"container": c.Name(),
+			"names":     normalizedNames,
+		})
+
+		for _, pattern := range normalizedNames {
+			if matchesName(containerName, pattern) {
+				clog.Debug("Matched container by name/pattern")
+
+				return baseFilter(c)
+			}
+		}
+
+		clog.Debug("Container name did not match any filter")
+
+		return false
+	}
+}
+
+// FilterByDisableNames excludes containers matching specified names.
+//
+// Parameters:
+//   - normalizedDisableNames: Names or regex patterns to exclude.
+//   - baseFilter: Base filter to chain.
+//
+// Returns:
+//   - types.Filter: Filter function excluding names and applying base filter.
+func FilterByDisableNames(normalizedDisableNames []string, baseFilter types.Filter) types.Filter {
+	if len(normalizedDisableNames) == 0 {
+		return baseFilter
+	}
+
+	return func(c types.FilterableContainer) bool {
+		containerName := c.Name() // Normalized name
+		clog := logrus.WithFields(logrus.Fields{
+			"container":    c.Name(),
+			"disableNames": normalizedDisableNames,
+		})
+
+		for _, pattern := range normalizedDisableNames {
+			if matchesName(containerName, pattern) {
+				clog.Debug("Container excluded by disable name/pattern")
+
+				return false
+			}
+		}
+
+		clog.Debug("Container not excluded by disable names")
+
+		return baseFilter(c)
+	}
+}
+
+// FilterByMonitoredImageNamePatterns restricts monitoring to containers whose image name
+// matches specified patterns. When set, only matching containers are monitored.
+//
+// Parameters:
+//   - namePatterns: Image name regex patterns.
+//   - baseFilter: Base filter to chain.
+//
+// Returns:
+//   - types.Filter: Filter function restricting to matching image names, then
+//     applying base filter.
+func FilterByMonitoredImageNamePatterns(namePatterns []string, baseFilter types.Filter) types.Filter {
+	if len(namePatterns) == 0 {
+		return baseFilter
+	}
+
+	return func(c types.FilterableContainer) bool {
+		imageName := c.ImageName()
+		clog := logrus.WithFields(logrus.Fields{
+			"container":    c.Name(),
+			"image":        imageName,
+			"namePatterns": namePatterns,
+		})
+
+		for _, pattern := range namePatterns {
+			if matchesImageName(imageName, pattern) {
+				clog.Debug("Container image matched pattern")
+
+				return baseFilter(c)
+			}
+		}
+
+		clog.Debug("Container image did not match any pattern")
+
+		return false
+	}
+}
+
+// FilterBySkippedImageNamePatterns prevents monitoring of containers whose image name
+// matches specified patterns. Matching containers are excluded from monitoring.
+//
+// Parameters:
+//   - namePatterns: Image name regex patterns.
+//   - baseFilter: Base filter to chain.
+//
+// Returns:
+//   - types.Filter: Filter function excluding matching image names, then applying
+//     base filter.
+func FilterBySkippedImageNamePatterns(namePatterns []string, baseFilter types.Filter) types.Filter {
+	if len(namePatterns) == 0 {
+		return baseFilter
+	}
+
+	return func(c types.FilterableContainer) bool {
+		imageName := c.ImageName()
+		clog := logrus.WithFields(logrus.Fields{
+			"container":    c.Name(),
+			"image":        imageName,
+			"namePatterns": namePatterns,
+		})
+
+		for _, pattern := range namePatterns {
+			if matchesImageName(imageName, pattern) {
+				clog.Debug("Container image matched skip pattern")
+
+				return false
+			}
+		}
+
+		clog.Debug("Container not skipped by image name patterns")
+
+		return baseFilter(c)
+	}
+}
+
+// FilterByEnableLabel selects containers with enable label set.
+//
+// Parameters:
+//   - baseFilter: Base filter to chain.
+//
+// Returns:
+//   - types.Filter: Filter function requiring enable label and applying base filter.
+func FilterByEnableLabel(baseFilter types.Filter) types.Filter {
+	return func(c types.FilterableContainer) bool {
+		clog := logrus.WithField("container", c.Name())
+		_, ok := c.Enabled()
+
+		if !ok {
+			clog.Debug("Container excluded: enable label not set")
+
+			return false
+		}
+
+		clog.Debug("Container included: enable label set")
+
+		return baseFilter(c)
+	}
+}
+
+// FilterByDisabledLabel excludes containers with enable label set to false.
+//
+// Parameters:
+//   - baseFilter: Base filter to chain.
+//
+// Returns:
+//   - types.Filter: Filter function excluding disabled containers and applying base filter.
+func FilterByDisabledLabel(baseFilter types.Filter) types.Filter {
+	return func(c types.FilterableContainer) bool {
+		clog := logrus.WithField("container", c.Name())
+		enabledLabel, ok := c.Enabled()
+
+		if ok && !enabledLabel {
+			clog.Debug("Container excluded: enable label set to false")
+
+			return false
+		}
+
+		clog.Debug("Container not excluded by disabled label")
+
+		return baseFilter(c)
+	}
+}
+
+// FilterByScope selects containers in a specific scope.
+//
+// Parameters:
+//   - scope: Scope to match.
+//   - baseFilter: Base filter to chain.
+//
+// Returns:
+//   - types.Filter: Filter function matching scope and applying base filter.
+func FilterByScope(scope string, baseFilter types.Filter) types.Filter {
+	return func(c types.FilterableContainer) bool {
+		clog := logrus.WithFields(logrus.Fields{
+			"container": c.Name(),
+			"scope":     scope,
+		})
+
+		containerScope, containerHasScope := c.Scope()
+		if !containerHasScope || containerScope == "" {
+			containerScope = noScope // Default to "none" if unset.
+		}
+
+		if containerScope == scope {
+			clog.WithField("container_scope", containerScope).Debug("Container matched scope")
+
+			return baseFilter(c)
+		}
+
+		clog.WithField("container_scope", containerScope).Debug("Container scope mismatch")
+
+		return false
+	}
+}
+
+// FilterByImage selects containers with specific images, optionally including tags.
+//
+// Parameters:
+//   - images: List of image names (with optional tags) to match.
+//   - baseFilter: Base filter to chain.
+//
+// Returns:
+//   - types.Filter: Filter function matching images and applying base filter.
+func FilterByImage(images []string, baseFilter types.Filter) types.Filter {
+	if images == nil {
+		return baseFilter // No images specified, apply base filter only.
+	}
+
+	return func(c types.FilterableContainer) bool {
+		clog := logrus.WithFields(logrus.Fields{
+			"container": c.Name(),
+			"images":    images,
+		})
+
+		for _, targetImage := range images {
+			if matchImageAndTag(c.ImageName(), targetImage) {
+				clog.WithField("image", c.ImageName()).Debug("Container matched image")
+
+				return baseFilter(c) // Image matches, proceed with base filter.
+			}
+		}
+
+		clog.WithField("image", c.ImageName()).Debug("Container image did not match")
+
+		return false // No matching image found.
+	}
+}
+
+// matchesImageName checks if a container's image name matches a given pattern (exact or regex).
+// Returns true if it matches, false otherwise.
+// Invalid regex patterns are treated as literal strings for exact matching.
+func matchesImageName(imageName, pattern string) bool {
+	if pattern == imageName {
+		return true
+	}
+
+	regex, err := regexp.Compile("^" + pattern + "$")
+	if err != nil {
+		return false
+	}
+
+	return regex.MatchString(imageName)
+}
+
+// matchesName checks if a container name matches a given pattern (exact or regex).
+// Returns true if it matches, false otherwise.
+// Invalid regex patterns are treated as literal strings for exact matching.
+func matchesName(containerName, pattern string) bool {
+	pattern = strings.TrimPrefix(pattern, "/")
+
+	if pattern == containerName {
+		return true
+	}
+
+	regex, err := regexp.Compile("^" + pattern + "$")
+	if err != nil {
+		return false
+	}
+
+	return regex.MatchString(containerName)
+}
+
+// matchImageAndTag checks if a container's image matches a target image, including optional tag.
+//
+// Parameters:
+//   - containerImage: The container's image name (e.g., "registry:develop").
+//   - targetImage: The target image name or image:tag to match (e.g., "registry").
+//
+// Returns:
+//   - bool: True if the image (and tag, if specified) matches, false otherwise.
+func matchImageAndTag(containerImage, targetImage string) bool {
+	containerParts := strings.Split(containerImage, ":") // Split into name and tag.
+	targetParts := strings.Split(targetImage, ":")       // Split target into name and tag.
+
+	if containerParts[0] != targetParts[0] { // Compare image names.
+		return false // Image names don't match.
+	}
+
+	if len(targetParts) > 1 && len(containerParts) > 1 { // Both have tags.
+		return containerParts[1] == targetParts[1] // Compare tags.
+	}
+
+	return true // No tag in target or container, name match sufficient.
+}
+
+// BuildFilter constructs a composite filter for containers.
+//
+// Parameters:
+//   - normalizedNames: Normalized container names or regex patterns. When set, only
+//     containers matching these patterns are monitored.
+//   - normalizedDisableNames: Container names or regex patterns to skip. Matching
+//     containers are excluded from monitoring.
+//   - monitoredImageNamePatterns: Image name regex patterns. When set, only containers whose
+//     image matches one of these patterns are monitored.
+//   - skippedImageNamePatterns: Image name regex patterns. Containers whose image
+//     matches one of these patterns are excluded from monitoring.
+//   - enableLabel: Require enable label if true.
+//   - scope: Scope to match.
+//
+// Returns:
+//   - types.Filter: Combined filter function.
+//   - string: Description of the filter.
+func BuildFilter(
+	normalizedNames []string,
+	normalizedDisableNames []string,
+	monitoredImageNamePatterns []string,
+	skippedImageNamePatterns []string,
+	enableLabel bool,
+	scope string,
+) (types.Filter, string) {
+	clog := logrus.WithFields(logrus.Fields{
+		"names":                      normalizedNames,
+		"disableNames":               normalizedDisableNames,
+		"monitoredImageNamePatterns": monitoredImageNamePatterns,
+		"skippedImageNamePatterns":   skippedImageNamePatterns,
+		"enableLabel":                enableLabel,
+		"scope":                      scope,
+	})
+	clog.Debug("Building container filter")
+
+	stringBuilder := strings.Builder{}
+	filter := NoFilter
+	filter = FilterByNames(normalizedNames, filter)
+	filter = FilterByDisableNames(normalizedDisableNames, filter)
+	filter = FilterByMonitoredImageNamePatterns(monitoredImageNamePatterns, filter)
+	filter = FilterBySkippedImageNamePatterns(skippedImageNamePatterns, filter)
+
+	// Add name-based filter description.
+	if len(normalizedNames) > 0 {
+		stringBuilder.WriteString("which name matches \"")
+
+		for i, n := range normalizedNames {
+			stringBuilder.WriteString(n)
+
+			if i < len(normalizedNames)-1 {
+				stringBuilder.WriteString(`" or "`)
+			}
+		}
+
+		stringBuilder.WriteString(`", `)
+	}
+
+	// Add disable-name-based filter description.
+	if len(normalizedDisableNames) > 0 {
+		stringBuilder.WriteString("not named one of \"")
+
+		for i, n := range normalizedDisableNames {
+			stringBuilder.WriteString(n)
+
+			if i < len(normalizedDisableNames)-1 {
+				stringBuilder.WriteString(`" or "`)
+			}
+		}
+
+		stringBuilder.WriteString(`", `)
+	}
+
+	if len(monitoredImageNamePatterns) > 0 {
+		stringBuilder.WriteString("which image matches \"")
+
+		for i, n := range monitoredImageNamePatterns {
+			stringBuilder.WriteString(n)
+
+			if i < len(monitoredImageNamePatterns)-1 {
+				stringBuilder.WriteString(`" or "`)
+			}
+		}
+
+		stringBuilder.WriteString(`", `)
+	}
+
+	if len(skippedImageNamePatterns) > 0 {
+		stringBuilder.WriteString("whose image is not one of \"")
+
+		for i, n := range skippedImageNamePatterns {
+			stringBuilder.WriteString(n)
+
+			if i < len(skippedImageNamePatterns)-1 {
+				stringBuilder.WriteString(`" or "`)
+			}
+		}
+
+		stringBuilder.WriteString(`", `)
+	}
+
+	// Apply enable label filter if specified.
+	if enableLabel {
+		filter = FilterByEnableLabel(filter)
+
+		stringBuilder.WriteString("using enable label, ")
+	}
+
+	if scope == noScope || scope == "" {
+		filter = FilterByScope(noScope, filter)
+
+		stringBuilder.WriteString(`without a scope`)
+	} else if scope != "" {
+		filter = FilterByScope(scope, filter)
+
+		stringBuilder.WriteString(`in scope `)
+		stringBuilder.WriteString(scope)
+	}
+
+	// Exclude explicitly disabled containers.
+	filter = FilterByDisabledLabel(filter)
+
+	// Exclude old Watchtower containers (predecessors from self-update).
+	// Applied last so it wraps the entire chain and short-circuits first.
+	filter = ExcludeOldWatchtowerFilterChain(filter)
+
+	// Build filter description.
+	filterDesc := "Checking all containers (except explicitly disabled with label)"
+	if stringBuilder.Len() > 0 {
+		filterDesc = "Only checking containers " + stringBuilder.String()
+		// Trim trailing ", " if present (for name/enable filters)
+		filterDesc = strings.TrimSuffix(filterDesc, ", ")
+	}
+
+	clog.WithField("filter_desc", filterDesc).Debug("Filter built")
+
+	return filter, filterDesc
+}
