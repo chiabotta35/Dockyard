@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/sirupsen/logrus"
 
@@ -151,9 +152,30 @@ func EncodedConfigCredentials(imageRef string) (string, error) {
 		return "", fmt.Errorf("%w: %w", errFailedLoadDockerConfig, err)
 	}
 
-	// Retrieve credentials from the config's store.
+	// Try the configured credentials store first (native or file-based).
 	credStore := CredentialsStore(*configFile)
 	credentials, _ := credStore.Get(server)
+
+	// If the configured store returned empty, fall back to reading the auths
+	// map directly. This handles cases where credsStore is set (e.g. "desktop")
+	// but the native binary isn't available inside the container.
+	if credentials == (dockerConfig.AuthConfig{}) {
+		if auths, ok := configFile.AuthConfigs[server]; ok && auths.Auth != "" {
+			decoded, err := base64.StdEncoding.DecodeString(auths.Auth)
+			if err == nil {
+				parts := strings.SplitN(string(decoded), ":", 2)
+				if len(parts) == 2 {
+					credentials = dockerConfig.AuthConfig{
+						Username: parts[0],
+						Password: parts[1],
+					}
+					logrus.WithFields(fields).WithFields(logrus.Fields{
+						"server": server,
+					}).Debug("Fallback: read auth directly from config auths map")
+				}
+			}
+		}
+	}
 
 	// Return empty string if no credentials are found.
 	if credentials == (dockerConfig.AuthConfig{}) {
