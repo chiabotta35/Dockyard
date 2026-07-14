@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/sirupsen/logrus"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -48,7 +49,51 @@ func NewAuthStore(dataDir string) *AuthStore {
 		filePath: filepath.Join(dataDir, "auth.json"),
 	}
 	a.load()
+	a.autoProvision()
 	return a
+}
+
+func (a *AuthStore) autoProvision() {
+	username := os.Getenv("DOCKYARD_ADMIN_USER")
+	password := os.Getenv("DOCKYARD_ADMIN_PASSWORD")
+	if username == "" || password == "" {
+		return
+	}
+	username = strings.TrimSpace(username)
+	if len(password) < 8 {
+		logrus.Warn("DOCKYARD_ADMIN_PASSWORD must be at least 8 characters, skipping auto-provision")
+		return
+	}
+
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	if existing, exists := a.users[username]; exists {
+		if err := bcrypt.CompareHashAndPassword([]byte(existing.PasswordHash), []byte(password)); err != nil {
+			hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+			if err != nil {
+				logrus.WithError(err).Error("Failed to hash admin password")
+				return
+			}
+			existing.PasswordHash = string(hash)
+			a.sessions = make(map[string]*Session)
+			logrus.WithField("user", username).Info("Admin password updated from environment")
+		}
+		return
+	}
+
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		logrus.WithError(err).Error("Failed to hash admin password")
+		return
+	}
+	a.users[username] = &User{
+		Username:     username,
+		PasswordHash: string(hash),
+		CreatedAt:    time.Now().Format(time.RFC3339),
+	}
+	a.save()
+	logrus.WithField("user", username).Info("Admin account created from environment")
 }
 
 func (a *AuthStore) SetHTTPS(enabled bool) {

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strconv"
 	"sync"
 	"time"
 )
@@ -76,7 +77,84 @@ func NewState(dataDir string) *State {
 		filePath: filepath.Join(dataDir, "state.json"),
 	}
 	s.load()
+	s.loadFromEnv()
 	return s
+}
+
+func (s *State) loadFromEnv() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	changed := false
+
+	if v := os.Getenv("DOCKYARD_SCHEDULE"); v != "" {
+		s.Settings.Schedule = v
+		changed = true
+	}
+	if v := os.Getenv("DOCKYARD_TIMEZONE"); v != "" {
+		s.Settings.Timezone = v
+		changed = true
+	}
+	if v := os.Getenv("DOCKYARD_CLEANUP"); v != "" {
+		if b, err := strconv.ParseBool(v); err == nil {
+			s.Settings.Cleanup = b
+			changed = true
+		}
+	}
+	if v := os.Getenv("DOCKYARD_COOLDOWN_DELAY"); v != "" {
+		s.Settings.CooldownDelay = v
+		changed = true
+	}
+	if v := os.Getenv("DOCKYARD_STOP_TIMEOUT"); v != "" {
+		s.Settings.StopTimeout = v
+		changed = true
+	}
+	if v := os.Getenv("DOCKYARD_MONITOR_ONLY"); v != "" {
+		if b, err := strconv.ParseBool(v); err == nil {
+			s.Settings.MonitorOnly = b
+			changed = true
+		}
+	}
+	if v := os.Getenv("DOCKYARD_ROLLING_RESTART"); v != "" {
+		if b, err := strconv.ParseBool(v); err == nil {
+			s.Settings.RollingRestart = b
+			changed = true
+		}
+	}
+	if v := os.Getenv("DOCKYARD_LIFECYCLE_HOOKS"); v != "" {
+		if b, err := strconv.ParseBool(v); err == nil {
+			s.Settings.LifecycleHooks = b
+			changed = true
+		}
+	}
+	if v := os.Getenv("DOCKYARD_UPDATE_ON_START"); v != "" {
+		if b, err := strconv.ParseBool(v); err == nil {
+			s.Settings.UpdateOnStart = b
+			changed = true
+		}
+	}
+	if v := os.Getenv("DOCKYARD_BACKUP_RETENTION"); v != "" {
+		if b, err := strconv.ParseBool(v); err == nil {
+			s.Settings.BackupRetention = b
+			changed = true
+		}
+	}
+	if v := os.Getenv("DOCKYARD_BACKUP_WINDOW_HOURS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 1 && n <= 720 {
+			s.Settings.BackupWindowHours = n
+			changed = true
+		}
+	}
+	if v := os.Getenv("DOCKYARD_NOTIFICATION_URL"); v != "" {
+		s.Settings.NotificationURL = v
+		changed = true
+	}
+
+	if changed {
+		s.mu.Unlock()
+		s.save()
+		s.mu.Lock()
+	}
 }
 
 func (s *State) load() {
