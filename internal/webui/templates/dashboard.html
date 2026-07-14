@@ -268,14 +268,24 @@
             document.getElementById('log-panel').classList.toggle('hidden');
         }
 
-        function refreshContainers() {
+        let lastDataHash = '';
+
+        function dataHash(data) {
+            return JSON.stringify(data.map(c => [c.name, c.stale, c.state, c.update_mode, c.is_deferred]));
+        }
+
+        function refreshContainers(force) {
             if (isLoading) return;
             isLoading = true;
             fetch('/api/containers')
                 .then(r => r.json())
                 .then(data => {
+                    var hash = dataHash(data);
                     cachedContainers = data;
-                    renderFromCache();
+                    if (force || hash !== lastDataHash) {
+                        lastDataHash = hash;
+                        renderFromCache();
+                    }
                     isLoading = false;
                 })
                 .catch(() => { isLoading = false; });
@@ -296,15 +306,20 @@
 
         eventSource.addEventListener('update_started', function(e) {
             showLog();
+            refreshContainers(true);
         });
 
         eventSource.addEventListener('update_complete', function(e) {
-            refreshContainers();
+            refreshContainers(true);
         });
 
-        // Initial load + periodic refresh
-        refreshContainers();
-        setInterval(refreshContainers, 10000);
+        eventSource.addEventListener('update_progress', function(e) {
+            refreshContainers(true);
+        });
+
+        // Initial load + silent background refresh every 30s
+        refreshContainers(true);
+        setInterval(function() { refreshContainers(false); }, 30000);
     </script>
 </body>
 </html>
