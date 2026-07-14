@@ -204,6 +204,7 @@ func (s *Server) Start(ctx context.Context) error {
 	protected.HandleFunc("/api/update/check", s.handleAPICheckUpdate)
 	protected.HandleFunc("/api/update/self", s.handleAPISelfUpdate)
 	protected.HandleFunc("/api/notifications/test", s.handleAPITestNotification)
+	protected.HandleFunc("/api/logs", s.handleAPILogs)
 	protected.HandleFunc("/api/user/change-password", limitRequestBody(s.handleAPIChangePassword))
 	logrus.Debug("Registered protected page and API routes")
 
@@ -221,9 +222,23 @@ func (s *Server) Start(ctx context.Context) error {
 
 	go func() {
 		<-ctx.Done()
+		s.state.FlushLogs()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		s.server.Shutdown(shutdownCtx)
+	}()
+
+	go func() {
+		ticker := time.NewTicker(10 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				s.state.FlushLogs()
+			}
+		}
 	}()
 
 	logrus.WithField("addr", s.addr).Info("Dockyard web UI starting")

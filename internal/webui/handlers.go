@@ -176,8 +176,11 @@ func (s *Server) handleUpdateContainer(w http.ResponseWriter, r *http.Request, n
 
 // performContainerUpdate does the actual Docker pull + restart for a single container.
 func (s *Server) performContainerUpdate(name string) {
+	sessionID := s.state.StartSession(name)
+	defer s.state.EndSession(name)
+
 	startTime := time.Now()
-	s.events.Broadcast(Event{Type: EventUpdateStarted, Container: name, Message: "Updating"})
+	s.events.Broadcast(Event{Type: EventUpdateStarted, Container: name, Message: "Updating", Data: map[string]string{"session_id": sessionID}})
 	s.events.BroadcastLog(name, "Checking for updates...")
 
 	ctx := context.Background()
@@ -233,6 +236,7 @@ func (s *Server) performContainerUpdate(name string) {
 				Timestamp: time.Now(),
 				Status:    "success",
 				Duration:  time.Since(startTime),
+				SessionID: sessionID,
 			})
 			return
 		} else {
@@ -257,6 +261,7 @@ func (s *Server) performContainerUpdate(name string) {
 			Timestamp: time.Now(),
 			Status:    "success",
 			Duration:  time.Since(startTime),
+			SessionID: sessionID,
 		})
 		return
 	}
@@ -285,6 +290,7 @@ func (s *Server) performContainerUpdate(name string) {
 			Timestamp: time.Now(),
 			Status:    "success",
 			Duration:  time.Since(startTime),
+			SessionID: sessionID,
 		})
 
 		if err := s.client.StopAndRemoveContainer(ctx, target, 30*time.Second); err != nil {
@@ -328,6 +334,7 @@ func (s *Server) performContainerUpdate(name string) {
 		Timestamp: time.Now(),
 		Status:    "success",
 		Duration:  time.Since(startTime),
+		SessionID: sessionID,
 	})
 }
 
@@ -346,8 +353,11 @@ func (s *Server) handleRollbackContainer(w http.ResponseWriter, r *http.Request,
 
 	s.events.BroadcastLog(name, "Rolling back to: "+prevImage)
 
+	sessionID := s.state.StartSession(name)
+	defer s.state.EndSession(name)
+
 	go func() {
-		s.events.Broadcast(Event{Type: EventUpdateStarted, Container: name, Message: "Rollback"})
+		s.events.Broadcast(Event{Type: EventUpdateStarted, Container: name, Message: "Rollback", Data: map[string]string{"session_id": sessionID}})
 		startTime := time.Now()
 
 		ctx := context.Background()
@@ -408,6 +418,7 @@ func (s *Server) handleRollbackContainer(w http.ResponseWriter, r *http.Request,
 				Timestamp: time.Now(),
 				Status:    "rollback",
 				Duration:  time.Since(startTime),
+				SessionID: sessionID,
 			})
 
 			if err := s.client.StopAndRemoveContainer(ctx, target, 30*time.Second); err != nil {
@@ -427,6 +438,7 @@ func (s *Server) handleRollbackContainer(w http.ResponseWriter, r *http.Request,
 			Timestamp: time.Now(),
 			Status:    "rollback",
 			Duration:  time.Since(startTime),
+			SessionID: sessionID,
 		})
 	}()
 
@@ -574,6 +586,26 @@ func (s *Server) BroadcastLog(container, message string) {
 
 func (s *Server) BroadcastUpdate(container, status string) {
 	s.events.BroadcastUpdate(container, status)
+}
+
+// handleAPILogs returns persisted log entries filtered by container, session, or date range.
+func (s *Server) handleAPILogs(w http.ResponseWriter, r *http.Request) {
+	container := r.URL.Query().Get("container")
+	sessionID := r.URL.Query().Get("session")
+
+	var since *time.Time
+	if v := r.URL.Query().Get("since"); v != "" {
+		t, err := time.Parse(time.RFC3339, v)
+		if err == nil {
+			since = &t
+		}
+	}
+
+	logs := s.state.GetLogs(container, sessionID, since)
+	if logs == nil {
+		logs = []LogEntry{}
+	}
+	s.writeJSON(w, logs)
 }
 
 // handleAPITestNotification sends a test message to the configured notification URL.

@@ -33,13 +33,15 @@ type EventHub struct {
 	mu         sync.RWMutex
 	maxHistory int
 	history    []Event
+	logFunc    func(container, message string) // callback for persistent log storage
 }
 
-func NewEventHub() *EventHub {
+func NewEventHub(logFunc func(container, message string)) *EventHub {
 	return &EventHub{
 		clients:    make(map[chan Event]struct{}),
 		maxHistory: 200,
 		history:    make([]Event, 0, 200),
+		logFunc:    logFunc,
 	}
 }
 
@@ -96,6 +98,9 @@ func (h *EventHub) BroadcastLog(container, message string) {
 		Container: container,
 		Message:   message,
 	})
+	if h.logFunc != nil {
+		h.logFunc(container, message)
+	}
 }
 
 func (h *EventHub) BroadcastUpdate(container, status string) {

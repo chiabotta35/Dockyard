@@ -1,6 +1,8 @@
 package webui
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -52,14 +54,28 @@ type HistoryEntry struct {
 	Status    string        `json:"status"`
 	Error     string        `json:"error,omitempty"`
 	Duration  time.Duration `json:"duration,omitempty"`
+	SessionID string        `json:"session_id"`
+}
+
+type LogEntry struct {
+	Container string    `json:"container"`
+	Message   string    `json:"message"`
+	Timestamp time.Time `json:"timestamp"`
+	SessionID string    `json:"session_id"`
 }
 
 type State struct {
 	Containers map[string]*ContainerState `json:"containers"`
 	Settings   Settings                   `json:"settings"`
 	History    []HistoryEntry             `json:"history"`
+	Logs       []LogEntry                 `json:"-"`
+	sessions   map[string]string          // container name -> session ID
 	mu         sync.RWMutex
+	sessionMu  sync.RWMutex
 	filePath   string
+	logPath    string
+	logDirty   bool
+	logMu      sync.Mutex
 }
 
 func NewState(dataDir string) *State {
@@ -80,10 +96,15 @@ func NewState(dataDir string) *State {
 			UpdateOnStart:     false,
 		},
 		History:  make([]HistoryEntry, 0),
+		Logs:     make([]LogEntry, 0),
+		sessions: make(map[string]string),
 		filePath: filepath.Join(dataDir, "state.json"),
+		logPath:  filepath.Join(dataDir, "logs.json"),
 	}
 	s.load()
+	s.loadLogs()
 	s.loadFromEnv()
+	s.CleanOldLogs(7 * 24 * time.Hour)
 	logrus.WithFields(logrus.Fields{
 		"schedule":        s.Settings.Schedule,
 		"monitor_only":    s.Settings.MonitorOnly,
@@ -349,4 +370,109 @@ func (s *State) ClearPreviousImage(name string) error {
 	}
 	s.mu.Unlock()
 	return s.save()
+}
+
+func (s *State) loadLogs() {
+	data, err := os.ReadFile(s.logPath)
+	if err != nil {
+		return
+	}
+	s.mu.Lock()
+	json.Unmarshal(data, &s.Logs)
+	s.mu.Unlock()
+}
+
+func (s *State) saveLogs() error {
+	s.mu.RLock()
+	data, err := json.MarshalIndent(s.Logs, "", "  ")
+	s.mu.RUnlock()
+	if err != nil {
+		return err
+	}
+	dir := filepath.Dir(s.logPath)
+	os.MkdirAll(dir, 0755)
+	return os.WriteFile(s.logPath, data, 0600)
+}
+
+func (s *State) AddLogEntry(entry LogEntry) {
+	s.mu.Lock()
+	s.Logs = append(s.Logs, entry)
+	if len(s.Logs) > 5000 {
+		s.Logs = s.Logs[len(s.Logs)-5000:]
+	}
+	s.mu.Unlock()
+
+	s.logMu.Lock()
+	s.logDirty = true
+	s.logMu.Unlock()
+}
+
+func (s *State) FlushLogs() error {
+	s.logMu.Lock()
+	defer s.logMu.Unlock()
+	if !s.logDirty {
+		return nil
+	}
+	s.logDirty = false
+	return s.saveLogs()
+}
+
+func (s *State) GetLogs(container, sessionID string, since *time.Time) []LogEntry {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	var out []LogEntry
+	for _, e := range s.Logs {
+		if container != "" && e.Container != container {
+			continue
+		}
+		if sessionID != "" && e.SessionID != sessionID {
+			continue
+		}
+		if since != nil && e.Timestamp.Before(*since) {
+			continue
+		}
+		out = append(out, e)
+	}
+	return out
+}
+
+func (s *State) CleanOldLogs(maxAge time.Duration) int {
+	cutoff := time.Now().Add(-maxAge)
+	s.mu.Lock()
+	n := 0
+	for i := 0; i < len(s.Logs); i++ {
+		if s.Logs[i].Timestamp.Before(cutoff) {
+			n++
+		} else {
+			break
+		}
+	}
+	if n > 0 {
+		s.Logs = s.Logs[n:]
+	}
+	s.mu.Unlock()
+	return n
+}
+
+func (s *State) StartSession(container string) string {
+	b := make([]byte, 8)
+	rand.Read(b)
+	id := hex.EncodeToString(b)
+	s.sessionMu.Lock()
+	s.sessions[container] = id
+	s.sessionMu.Unlock()
+	return id
+}
+
+func (s *State) GetSessionForLog(container string) string {
+	s.sessionMu.RLock()
+	defer s.sessionMu.RUnlock()
+	return s.sessions[container]
+}
+
+func (s *State) EndSession(container string) {
+	s.sessionMu.Lock()
+	delete(s.sessions, container)
+	s.sessionMu.Unlock()
 }

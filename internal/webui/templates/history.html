@@ -19,6 +19,9 @@
     </script>
     <style>
         body { font-family: 'Inter', system-ui, -apple-system, sans-serif; }
+        .chevron { transition: transform 0.15s ease; }
+        .chevron.open { transform: rotate(90deg); }
+        .log-line { font-family: 'JetBrains Mono', 'Fira Code', monospace; }
     </style>
 </head>
 <body class="bg-gray-950 text-gray-100 min-h-screen">
@@ -41,9 +44,7 @@
     <div class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
         <h1 class="text-2xl font-bold mb-6">Update History</h1>
 
-        <div id="history-list" class="space-y-2">
-            <div id="history-table"></div>
-        </div>
+        <div id="history-content"></div>
 
         <div id="empty-state" class="hidden text-center py-16 text-gray-500">
             <div class="text-4xl mb-3">&#128203;</div>
@@ -53,42 +54,128 @@
     </div>
 
     <script>
+        function escapeHtml(s) {
+            var d = document.createElement('div');
+            d.appendChild(document.createTextNode(s));
+            return d.innerHTML;
+        }
+
+        function formatDate(ts) {
+            var d = new Date(ts);
+            return d.toLocaleDateString(undefined, { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' });
+        }
+
+        function formatTime(ts) {
+            return new Date(ts).toLocaleTimeString();
+        }
+
+        function toggleHistoryLogs(id) {
+            var el = document.getElementById('logs-' + id);
+            var chevron = document.getElementById('chevron-' + id);
+            if (!el) return;
+            if (el.classList.contains('hidden')) {
+                el.classList.remove('hidden');
+                if (chevron) chevron.classList.add('open');
+                if (!el.dataset.loaded) {
+                    el.dataset.loaded = '1';
+                    loadHistoryLogs(id, el);
+                }
+            } else {
+                el.classList.add('hidden');
+                if (chevron) chevron.classList.remove('open');
+            }
+        }
+
+        function loadHistoryLogs(sessionID, container) {
+            var el = document.getElementById('logs-' + sessionID);
+            if (!el) return;
+            el.innerHTML = '<div class="p-3 text-xs text-gray-500">Loading logs...</div>';
+
+            var url = '/api/logs?session=' + encodeURIComponent(sessionID);
+            fetch(url)
+                .then(r => r.json())
+                .then(logs => {
+                    if (!logs || logs.length === 0) {
+                        el.innerHTML = '<div class="p-3 text-xs text-gray-500">No logs recorded for this update</div>';
+                        return;
+                    }
+                    var html = '<div class="bg-gray-950 border border-gray-800 rounded-lg p-3 max-h-80 overflow-y-auto">';
+                    logs.forEach(l => {
+                        var ts = formatTime(l.timestamp);
+                        var cls = l.message.includes('Failed') || l.message.includes('error') ? 'text-red-400' :
+                                  l.message.includes('complete') || l.message.includes('Success') || l.message.includes('Sent') ? 'text-emerald-400' : 'text-gray-400';
+                        html += '<div class="log-line text-xs leading-5 flex gap-3">' +
+                            '<span class="text-gray-600 w-20 shrink-0">' + ts + '</span>' +
+                            '<span class="' + cls + '">' + escapeHtml(l.message) + '</span>' +
+                            '</div>';
+                    });
+                    html += '</div>';
+                    el.innerHTML = html;
+                })
+                .catch(() => {
+                    el.innerHTML = '<div class="p-3 text-xs text-red-400">Failed to load logs</div>';
+                });
+        }
+
         fetch('/api/history')
             .then(r => r.json())
             .then(data => {
                 if (!data || data.length === 0) {
                     document.getElementById('empty-state').classList.remove('hidden');
-                    document.getElementById('history-table').classList.add('hidden');
+                    document.getElementById('history-content').classList.add('hidden');
                     return;
                 }
 
-                let html = '<div class="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">' +
-                    '<table class="w-full">' +
-                    '<thead class="bg-gray-800/50">' +
-                    '<tr>' +
-                    '<th class="text-left px-4 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wider">Container</th>' +
-                    '<th class="text-left px-4 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wider">Image</th>' +
-                    '<th class="text-left px-4 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wider">Status</th>' +
-                    '<th class="text-left px-4 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wider">Time</th>' +
-                    '</tr></thead><tbody class="divide-y divide-gray-800">';
-
+                var grouped = {};
                 data.forEach(h => {
-                    let statusBadge = h.status === 'success' ?
-                        '<span class="inline-flex items-center gap-1 text-xs font-medium text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full">&#10003; Success</span>' :
-                        (h.status === 'failed' ?
-                            '<span class="inline-flex items-center gap-1 text-xs font-medium text-red-400 bg-red-500/10 px-2 py-0.5 rounded-full">&#10007; Failed</span>' :
-                            '<span class="inline-flex items-center gap-1 text-xs font-medium text-gray-400 bg-gray-500/10 px-2 py-0.5 rounded-full">' + h.status + '</span>');
-
-                    html += '<tr class="hover:bg-gray-800/30 transition-colors">' +
-                        '<td class="px-4 py-3 text-sm font-medium text-white">' + h.container + '</td>' +
-                        '<td class="px-4 py-3 text-sm text-gray-400 font-mono truncate max-w-xs">' + (h.image_name || '-') + '</td>' +
-                        '<td class="px-4 py-3">' + statusBadge + '</td>' +
-                        '<td class="px-4 py-3 text-sm text-gray-500">' + new Date(h.timestamp).toLocaleString() + '</td>' +
-                        '</tr>';
+                    var day = formatDate(h.timestamp);
+                    if (!grouped[day]) grouped[day] = [];
+                    grouped[day].push(h);
                 });
 
-                html += '</tbody></table></div>';
-                document.getElementById('history-table').innerHTML = html;
+                var html = '';
+                Object.keys(grouped).forEach(day => {
+                    html += '<div class="mb-6">' +
+                        '<h2 class="text-sm font-semibold text-gray-400 mb-2">' + escapeHtml(day) + '</h2>' +
+                        '<div class="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">';
+
+                    grouped[day].forEach((h, i) => {
+                        var id = (h.session_id || h.timestamp) + '-' + i;
+                        var statusBadge = h.status === 'success' ?
+                            '<span class="inline-flex items-center gap-1 text-xs font-medium text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full">&#10003; Updated</span>' :
+                            (h.status === 'failed' ?
+                                '<span class="inline-flex items-center gap-1 text-xs font-medium text-red-400 bg-red-500/10 px-2 py-0.5 rounded-full">&#10007; Failed</span>' :
+                                (h.status === 'rollback' ?
+                                    '<span class="inline-flex items-center gap-1 text-xs font-medium text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-full">&#8630; Rollback</span>' :
+                                    '<span class="inline-flex items-center gap-1 text-xs font-medium text-gray-400 bg-gray-500/10 px-2 py-0.5 rounded-full">' + escapeHtml(h.status) + '</span>'));
+
+                        var duration = h.duration ? '<span class="text-xs text-gray-600">' + h.duration + '</span>' : '';
+
+                        html += '<div class="border-b border-gray-800 last:border-b-0">' +
+                            '<div class="px-4 py-3 hover:bg-gray-800/30 cursor-pointer transition-colors" onclick="toggleHistoryLogs(\'' + id + '\')">' +
+                            '<div class="flex items-center justify-between">' +
+                            '<div class="flex items-center gap-3">' +
+                            '<span id="chevron-' + id + '" class="chevron text-gray-600 text-xs inline-block">&#9654;</span>' +
+                            '<div class="flex items-center gap-2">' +
+                            '<span class="text-sm font-medium text-white">' + escapeHtml(h.container) + '</span>' +
+                            statusBadge +
+                            '</div>' +
+                            '</div>' +
+                            '<div class="flex items-center gap-3">' +
+                            duration +
+                            '<span class="text-xs text-gray-500">' + formatTime(h.timestamp) + '</span>' +
+                            '</div>' +
+                            '</div>' +
+                            (h.image_name ? '<div class="ml-7 text-xs text-gray-600 font-mono truncate">' + escapeHtml(h.image_name) + '</div>' : '') +
+                            '</div>' +
+                            '<div id="logs-' + id + '" class="hidden px-4 pb-3"></div>' +
+                            '</div>';
+                    });
+
+                    html += '</div></div>';
+                });
+
+                document.getElementById('history-content').innerHTML = html;
             });
     </script>
 </body>

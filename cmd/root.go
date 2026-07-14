@@ -902,7 +902,14 @@ func runMain(cfg types.RunConfig) int {
 		}).Info("Starting Dockyard web UI")
 
 		state := webui.NewState(webUIData)
-		events := webui.NewEventHub()
+		events := webui.NewEventHub(func(container, message string) {
+			state.AddLogEntry(webui.LogEntry{
+				Container: container,
+				Message:   message,
+				Timestamp: time.Now(),
+				SessionID: state.GetSessionForLog(container),
+			})
+		})
 		auth := webui.NewAuthStore(webUIData)
 		webSrv := webui.NewServer(state, events, auth, client, cfg.Filter, webUIAddr, meta.Version)
 
