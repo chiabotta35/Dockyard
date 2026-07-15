@@ -864,6 +864,15 @@ func (s *Server) runAutoCheck(ctx context.Context) {
 			sem <- struct{}{}
 			defer func() { <-sem }()
 
+			// Skip containers checked within the last 2 minutes to avoid
+			// redundant checks when the cron fires or manual check just ran.
+			if cs := s.state.GetContainerState(containers[i].Name); cs.CheckedAt != nil {
+				if time.Since(*cs.CheckedAt) < 2*time.Minute {
+					results <- result{index: i}
+					return
+				}
+			}
+
 			// Skip containers that are currently being updated.
 			s.updatingMu.Lock()
 			updating := s.updating[containers[i].Name]
