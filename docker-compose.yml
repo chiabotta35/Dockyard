@@ -1,6 +1,9 @@
 services:
   dockyard:
-    build: .
+    build:
+      context: .
+      args:
+        DOCKYARD_VERSION: v0.1.0
     container_name: dockyard
     restart: unless-stopped
     ports:
