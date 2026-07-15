@@ -331,8 +331,18 @@ func (s *Server) performContainerUpdate(name string) {
 
 	s.events.BroadcastLog(name, "New image available: "+newImage.ShortID())
 
+	// Remember the old image ID before we replace the container.
+	oldImageID := target.ImageID()
+
 	if isSelf {
-		s.events.BroadcastLog(name, "Self-update detected — starting new container first, then stopping this one")
+		s.events.BroadcastLog(name, "Self-update detected — renaming current container, starting new one, then removing old")
+
+		s.events.BroadcastLog(name, "Renaming current container to "+name+"-old...")
+		if err := s.client.RenameContainer(ctx, target, name+"-old"); err != nil {
+			s.events.BroadcastLog(name, "Failed to rename current container: "+err.Error())
+			s.events.Broadcast(Event{Type: EventUpdateFailed, Container: name, Message: "Rename failed"})
+			return
+		}
 
 		s.events.BroadcastLog(name, "Starting replacement container...")
 		startStart := time.Now()
@@ -357,14 +367,25 @@ func (s *Server) performContainerUpdate(name string) {
 			SessionID: sessionID,
 		})
 
-		if err := s.client.StopAndRemoveContainer(ctx, target, 30*time.Second); err != nil {
-			logrus.WithError(err).Warn("Failed to stop old self container (may already be gone)")
+		// Schedule old image cleanup for self too.
+		if oldImageID != "" && newImage != oldImageID {
+			s.state.ScheduleImageCleanup(name, string(oldImageID), imageName)
+		}
+
+		// Remove the renamed old container.
+		oldC, err := s.client.ListContainers(ctx)
+		if err == nil {
+			for _, c := range oldC {
+				if c.Name() == name+"-old" {
+					if stopErr := s.client.StopAndRemoveContainer(ctx, c, 30*time.Second); stopErr != nil {
+						logrus.WithError(stopErr).Warn("Failed to stop old self container (may already be gone)")
+					}
+					break
+				}
+			}
 		}
 		return
 	}
-
-	// Remember the old image ID before we replace the container.
-	oldImageID := target.ImageID()
 
 	s.events.BroadcastLog(name, "Stopping container...")
 	stopStart := time.Now()
