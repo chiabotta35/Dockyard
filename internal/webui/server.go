@@ -544,7 +544,14 @@ func (s *Server) getContainerList() []ContainerInfo {
 		logrus.WithError(err).Error("Failed to list containers")
 		return nil
 	}
+	return s.buildContainerList(containers)
+}
 
+// buildContainerList converts Docker container objects to ContainerInfo structs.
+// This is used by both getContainerList and the check handlers to avoid
+// calling ListContainers() twice (which can cause name mismatches if a
+// container is recreated between calls).
+func (s *Server) buildContainerList(containers []types.Container) []ContainerInfo {
 	result := make([]ContainerInfo, 0, len(containers))
 	for _, c := range containers {
 		name := c.Name()

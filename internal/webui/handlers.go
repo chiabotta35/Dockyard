@@ -638,7 +638,24 @@ func (s *Server) handleAPICheckNow(w http.ResponseWriter, r *http.Request) {
 	s.events.Broadcast(Event{Type: EventScanStarted, Message: "Scan started"})
 	s.events.BroadcastLog("", "Checking all containers for updates...")
 
-	containers := s.getContainerList()
+	ctx := context.Background()
+
+	// Fetch Docker containers once — used for both the UI list and staleness checks.
+	dockerContainers, err := s.client.ListContainers(ctx)
+	if err != nil {
+		logrus.WithError(err).Error("Failed to list Docker containers for staleness check")
+		s.writeError(w, "failed to list Docker containers: "+err.Error(), 500)
+		return
+	}
+
+	// Index Docker containers by name for O(1) lookup.
+	dockerByName := make(map[string]types.Container, len(dockerContainers))
+	for _, dc := range dockerContainers {
+		dockerByName[dc.Name()] = dc
+	}
+
+	// Build ContainerInfo list from the same Docker containers.
+	containers := s.buildContainerList(dockerContainers)
 
 	// Filter by scope: "main" excludes databases and sidecars.
 	scope := r.URL.Query().Get("scope")
@@ -658,22 +675,6 @@ func (s *Server) handleAPICheckNow(w http.ResponseWriter, r *http.Request) {
 		if v, err := strconv.Atoi(limitStr); err == nil && v > 0 && v <= 500 {
 			limit = v
 		}
-	}
-
-	ctx := context.Background()
-
-	// Fetch Docker containers once.
-	dockerContainers, err := s.client.ListContainers(ctx)
-	if err != nil {
-		logrus.WithError(err).Error("Failed to list Docker containers for staleness check")
-		s.writeError(w, "failed to list Docker containers: "+err.Error(), 500)
-		return
-	}
-
-	// Index Docker containers by name for O(1) lookup.
-	dockerByName := make(map[string]types.Container, len(dockerContainers))
-	for _, dc := range dockerContainers {
-		dockerByName[dc.Name()] = dc
 	}
 
 	// Check containers in parallel (max 10 concurrent for faster scans).
@@ -875,7 +876,18 @@ func (s *Server) runAutoCheck(ctx context.Context) {
 
 	logrus.Info("Running auto-check for container updates")
 
-	containers := s.getContainerList()
+	dockerContainers, err := s.client.ListContainers(ctx)
+	if err != nil {
+		logrus.WithError(err).Error("Auto-check: failed to list Docker containers")
+		return
+	}
+
+	dockerByName := make(map[string]types.Container, len(dockerContainers))
+	for _, dc := range dockerContainers {
+		dockerByName[dc.Name()] = dc
+	}
+
+	containers := s.buildContainerList(dockerContainers)
 	if len(containers) == 0 {
 		return
 	}
@@ -890,17 +902,6 @@ func (s *Server) runAutoCheck(ctx context.Context) {
 	containers = filtered
 	if len(containers) == 0 {
 		return
-	}
-
-	dockerContainers, err := s.client.ListContainers(ctx)
-	if err != nil {
-		logrus.WithError(err).Error("Auto-check: failed to list Docker containers")
-		return
-	}
-
-	dockerByName := make(map[string]types.Container, len(dockerContainers))
-	for _, dc := range dockerContainers {
-		dockerByName[dc.Name()] = dc
 	}
 
 	type result struct {
