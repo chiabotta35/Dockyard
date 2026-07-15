@@ -583,6 +583,12 @@ func (s *Server) getContainerList() []ContainerInfo {
 func (s *Server) buildContainerList(containers []types.Container) []ContainerInfo {
 	result := make([]ContainerInfo, 0, len(containers))
 	for _, c := range containers {
+		// Hide the self container — it's managed via the self-update button,
+		// not the regular container list.
+		if s.selfContainerID != "" && string(c.ID()) == s.selfContainerID {
+			continue
+		}
+
 		name := c.Name()
 		cs := s.state.GetContainerState(name)
 
