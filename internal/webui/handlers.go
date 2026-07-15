@@ -693,13 +693,13 @@ func (s *Server) handleAPICheckNow(w http.ResponseWriter, r *http.Request) {
 			failed++
 			s.events.BroadcastLog(containers[res.index].Name, "Check failed: "+res.err)
 			logrus.WithField("container", containers[res.index].Name).Warn("Staleness check failed: ", res.err)
-			details = append(details, checkDetail{name: containers[res.index].Name, image: containers[res.index].Image, errMsg: res.err})
+			details = append(details, checkDetail{name: containers[res.index].Name, image: containers[res.index].Image, errMsg: res.err, isSelf: containers[res.index].IsSelf})
 			s.state.SaveCheckResult(containers[res.index].Name, false, res.err, "")
 		} else if res.stale {
 			containers[res.index].Stale = true
 			stale++
 			s.events.BroadcastLog(containers[res.index].Name, "Update available")
-			details = append(details, checkDetail{name: containers[res.index].Name, image: containers[res.index].Image, stale: true})
+			details = append(details, checkDetail{name: containers[res.index].Name, image: containers[res.index].Image, stale: true, isSelf: containers[res.index].IsSelf})
 			s.state.SaveCheckResult(containers[res.index].Name, true, "", "")
 			s.state.MarkUpdateDetected(containers[res.index].Name)
 		} else {
@@ -797,6 +797,7 @@ type checkDetail struct {
 	image  string
 	stale  bool
 	errMsg string
+	isSelf bool
 }
 
 // convertDiscordURL auto-converts Discord webhook URLs to shoutrrr format.
@@ -917,11 +918,11 @@ func (s *Server) runAutoCheck(ctx context.Context) {
 	for res := range results {
 		if res.err != "" {
 			failed++
-			details = append(details, checkDetail{name: containers[res.index].Name, image: containers[res.index].Image, errMsg: res.err})
+			details = append(details, checkDetail{name: containers[res.index].Name, image: containers[res.index].Image, errMsg: res.err, isSelf: containers[res.index].IsSelf})
 			s.state.SaveCheckResult(containers[res.index].Name, false, res.err, "")
 		} else if res.stale {
 			stale++
-			details = append(details, checkDetail{name: containers[res.index].Name, image: containers[res.index].Image, stale: true})
+			details = append(details, checkDetail{name: containers[res.index].Name, image: containers[res.index].Image, stale: true, isSelf: containers[res.index].IsSelf})
 			s.state.SaveCheckResult(containers[res.index].Name, true, "", "")
 			s.state.MarkUpdateDetected(containers[res.index].Name)
 		} else {
@@ -943,6 +944,9 @@ func (s *Server) runAutoCheck(ctx context.Context) {
 	// Auto-update stale containers in auto mode (same as manual Check Now).
 	for _, d := range details {
 		if !d.stale {
+			continue
+		}
+		if d.isSelf {
 			continue
 		}
 		cs := s.state.GetContainerState(d.name)

@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -19,7 +20,7 @@ import (
 
 const (
 	GitHubOwner = "chiabotta35"
-	GitHubRepo  = "Dockyard"
+	GitHubRepo  = "dockyard"
 )
 
 type UpdateInfo struct {
@@ -43,11 +44,23 @@ type GitHubRelease struct {
 	} `json:"assets"`
 }
 
-var lastUpdateCheck *UpdateInfo
-var lastCheckTime time.Time
+var (
+	lastUpdateCheck *UpdateInfo
+	lastCheckTime   time.Time
+	updateCheckMu   sync.Mutex
+)
+
+// normalizeVersion strips a leading "v" prefix and whitespace so that
+// "v0.1.1" and "0.1.1" compare equal.
+func normalizeVersion(v string) string {
+	return strings.TrimSpace(strings.TrimPrefix(v, "v"))
+}
 
 func CheckForUpdate(currentVersion string) (*UpdateInfo, error) {
-	if time.Since(lastCheckTime) < 5*time.Minute && lastUpdateCheck != nil {
+	updateCheckMu.Lock()
+	defer updateCheckMu.Unlock()
+
+	if time.Since(lastCheckTime) < 60*time.Second && lastUpdateCheck != nil {
 		return lastUpdateCheck, nil
 	}
 
@@ -60,14 +73,12 @@ func CheckForUpdate(currentVersion string) (*UpdateInfo, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode == 404 {
-		info := &UpdateInfo{
+		// No release exists yet — don't cache this; retry on next call.
+		return &UpdateInfo{
 			Available:  false,
 			CurrentVer: currentVersion,
 			LatestVer:  currentVersion,
-		}
-		lastUpdateCheck = info
-		lastCheckTime = time.Now()
-		return info, nil
+		}, nil
 	}
 
 	if resp.StatusCode != 200 {
@@ -79,7 +90,8 @@ func CheckForUpdate(currentVersion string) (*UpdateInfo, error) {
 		return nil, fmt.Errorf("failed to parse release: %w", err)
 	}
 
-	available := release.TagName != currentVersion && release.TagName != ""
+	norm := func(v string) string { return strings.TrimSpace(strings.TrimPrefix(v, "v")) }
+	available := norm(release.TagName) != norm(currentVersion) && release.TagName != ""
 	info := &UpdateInfo{
 		Available:   available,
 		CurrentVer:  currentVersion,
