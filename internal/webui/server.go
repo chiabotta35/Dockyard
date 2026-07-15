@@ -534,13 +534,36 @@ func (s *Server) handleAPISelfUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	go func() {
-		if err := PerformSelfUpdate(s.version, s.events); err != nil {
-			logrus.WithError(err).Error("Self-update failed")
-		}
-	}()
+	if s.selfContainerID == "" {
+		s.writeError(w, "self container not detected — cannot self-update", 400)
+		return
+	}
 
-	s.writeJSON(w, map[string]string{"status": "ok", "message": "update started"})
+	// Find our own container name by ID, then route through the normal
+	// update flow which handles self-updates correctly (rename → start → remove).
+	ctx := context.Background()
+	dockerContainers, err := s.client.ListContainers(ctx)
+	if err != nil {
+		s.writeError(w, "failed to list containers: "+err.Error(), 500)
+		return
+	}
+
+	var selfName string
+	for _, c := range dockerContainers {
+		if string(c.ID()) == s.selfContainerID {
+			selfName = c.Name()
+			break
+		}
+	}
+
+	if selfName == "" {
+		s.writeError(w, "self container not found in Docker", 404)
+		return
+	}
+
+	go s.performContainerUpdate(selfName)
+
+	s.writeJSON(w, map[string]string{"status": "ok", "message": "update started", "container": selfName})
 }
 
 func (s *Server) getContainerList() []ContainerInfo {

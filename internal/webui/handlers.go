@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os/exec"
 	"strconv"
 	"strings"
 	"sync"
@@ -36,6 +37,26 @@ func (r *rollbackContainer) GetCreateConfig() *dockerContainer.Config {
 
 func (r *rollbackContainer) ImageName() string {
 	return r.overrideImage
+}
+
+// upgradeContainer wraps a Container and overrides GetCreateConfig and
+// ImageName so that StartContainer recreates the container using a new
+// image tag (used for self-updates where the version tag changes).
+type upgradeContainer struct {
+	types.Container
+	overrideImage string
+}
+
+func (u *upgradeContainer) GetCreateConfig() *dockerContainer.Config {
+	cfg := u.Container.GetCreateConfig()
+	if cfg != nil {
+		cfg.Image = u.overrideImage
+	}
+	return cfg
+}
+
+func (u *upgradeContainer) ImageName() string {
+	return u.overrideImage
 }
 
 func (s *Server) renderTemplate(w http.ResponseWriter, name string, data interface{}) {
@@ -208,6 +229,83 @@ func (s *Server) handleUpdateContainer(w http.ResponseWriter, r *http.Request, n
 	s.writeJSON(w, map[string]string{"status": "ok", "message": "update triggered"})
 }
 
+// performSelfUpdate handles self-updates by pulling the new version tag,
+// renaming the current container, starting a replacement, then removing
+// the old one. Unlike regular containers where we pull the same tag and
+// compare digests, the self container uses version tags (e.g. v0.1.13)
+// so we must pull the new tag explicitly.
+func (s *Server) performSelfUpdate(ctx context.Context, name string, target types.Container, updateInfo *UpdateInfo, startTime time.Time, sessionID string) {
+	newImageRef := fmt.Sprintf("ghcr.io/%s/%s:%s", GitHubOwner, GitHubRepo, updateInfo.LatestVer)
+
+	s.events.BroadcastLog(name, "Pulling new image: "+newImageRef)
+
+	// Pull the new image using Docker CLI (docker socket is mounted).
+	if err := exec.Command("docker", "pull", newImageRef).Run(); err != nil {
+		s.events.BroadcastLog(name, "Failed to pull new image: "+err.Error())
+		s.events.Broadcast(Event{Type: EventUpdateFailed, Container: name, Message: "Pull failed: " + err.Error()})
+		return
+	}
+
+	s.events.BroadcastLog(name, "Image pulled successfully")
+
+	// Remember the old image for cleanup.
+	oldImageID := target.ImageID()
+	oldImageName := target.ImageName()
+
+	// Rename current container to {name}-old.
+	s.events.BroadcastLog(name, "Renaming current container to "+name+"-old...")
+	if err := s.client.RenameContainer(ctx, target, name+"-old"); err != nil {
+		s.events.BroadcastLog(name, "Failed to rename: "+err.Error())
+		s.events.Broadcast(Event{Type: EventUpdateFailed, Container: name, Message: "Rename failed"})
+		return
+	}
+
+	// Start replacement container with the new image.
+	s.events.BroadcastLog(name, "Starting replacement container with "+updateInfo.LatestVer+"...")
+	startStart := time.Now()
+	wrapped := &upgradeContainer{Container: target, overrideImage: newImageRef}
+	newID, err := s.client.StartContainer(ctx, wrapped)
+	if err != nil {
+		s.events.BroadcastLog(name, "Failed to start replacement: "+err.Error())
+		s.events.Broadcast(Event{Type: EventUpdateFailed, Container: name, Message: "Start failed"})
+		return
+	}
+	startDuration := time.Since(startStart).Truncate(time.Millisecond)
+	s.events.BroadcastLog(name, "Replacement started ("+startDuration.String()+") — "+string(newID)[:12])
+
+	elapsed := time.Since(startTime).Truncate(time.Millisecond)
+	s.events.BroadcastLog(name, fmt.Sprintf("Self-update complete (%s) — container is restarting", elapsed))
+	s.events.Broadcast(Event{Type: EventUpdateComplete, Container: name, Message: fmt.Sprintf("Updated to %s", updateInfo.LatestVer)})
+	s.state.MarkUpdated(name)
+	s.state.ClearUpdateDetected(name)
+	s.state.SaveCheckResult(name, false, "", "")
+	s.state.AddHistory(HistoryEntry{
+		Container: name,
+		Timestamp: time.Now(),
+		Status:    "success",
+		Duration:  time.Since(startTime),
+		SessionID: sessionID,
+	})
+
+	// Schedule old image cleanup.
+	if oldImageID != "" {
+		s.state.ScheduleImageCleanup(name, string(oldImageID), oldImageName)
+	}
+
+	// Remove the renamed old container.
+	oldC, err := s.client.ListContainers(ctx)
+	if err == nil {
+		for _, c := range oldC {
+			if c.Name() == name+"-old" {
+				if stopErr := s.client.StopAndRemoveContainer(ctx, c, 30*time.Second); stopErr != nil {
+					logrus.WithError(stopErr).Warn("Failed to stop old self container (may already be gone)")
+				}
+				break
+			}
+		}
+	}
+}
+
 // performContainerUpdate does the actual Docker pull + restart for a single container.
 func (s *Server) performContainerUpdate(name string) {
 	sessionID := s.state.StartSession(name)
@@ -279,11 +377,15 @@ func (s *Server) performContainerUpdate(name string) {
 	isSelf := s.selfContainerID != "" && string(target.ID()) == s.selfContainerID
 
 	// For self-update, check GitHub version first to avoid unnecessary pull.
+	// The self container uses a version tag (e.g. v0.1.13), so IsContainerStale
+	// would pull the same tag and always report "not stale". Instead, when a
+	// new version is found, pull the new tag and recreate directly.
 	if isSelf {
 		s.events.BroadcastLog(name, "Checking GitHub for new version...")
 		updateInfo, err := CheckForUpdate(s.version)
 		if err != nil {
 			s.events.BroadcastLog(name, "Version check failed: "+err.Error())
+			// Fall through to normal stale check as fallback.
 		} else if !updateInfo.Available {
 			elapsed := time.Since(startTime).Truncate(time.Millisecond)
 			s.events.BroadcastLog(name, fmt.Sprintf("Already on latest version %s (%s)", s.version, elapsed))
@@ -301,6 +403,8 @@ func (s *Server) performContainerUpdate(name string) {
 			return
 		} else {
 			s.events.BroadcastLog(name, fmt.Sprintf("New version available: %s (current: %s)", updateInfo.LatestVer, s.version))
+			s.performSelfUpdate(ctx, name, target, updateInfo, startTime, sessionID)
+			return
 		}
 	}
 
@@ -333,59 +437,6 @@ func (s *Server) performContainerUpdate(name string) {
 
 	// Remember the old image ID before we replace the container.
 	oldImageID := target.ImageID()
-
-	if isSelf {
-		s.events.BroadcastLog(name, "Self-update detected — renaming current container, starting new one, then removing old")
-
-		s.events.BroadcastLog(name, "Renaming current container to "+name+"-old...")
-		if err := s.client.RenameContainer(ctx, target, name+"-old"); err != nil {
-			s.events.BroadcastLog(name, "Failed to rename current container: "+err.Error())
-			s.events.Broadcast(Event{Type: EventUpdateFailed, Container: name, Message: "Rename failed"})
-			return
-		}
-
-		s.events.BroadcastLog(name, "Starting replacement container...")
-		startStart := time.Now()
-		newID, err := s.client.StartContainer(ctx, target)
-		if err != nil {
-			s.events.BroadcastLog(name, "Failed to start replacement: "+err.Error())
-			s.events.Broadcast(Event{Type: EventUpdateFailed, Container: name, Message: "Start failed"})
-			return
-		}
-		startDuration := time.Since(startStart).Truncate(time.Millisecond)
-		s.events.BroadcastLog(name, "Replacement started ("+startDuration.String()+") — "+string(newID)[:12])
-
-		elapsed := time.Since(startTime).Truncate(time.Millisecond)
-		s.events.BroadcastLog(name, fmt.Sprintf("Self-update complete (%s) — container is restarting", elapsed))
-		s.state.MarkUpdated(name)
-		s.state.ClearUpdateDetected(name)
-		s.state.AddHistory(HistoryEntry{
-			Container: name,
-			Timestamp: time.Now(),
-			Status:    "success",
-			Duration:  time.Since(startTime),
-			SessionID: sessionID,
-		})
-
-		// Schedule old image cleanup for self too.
-		if oldImageID != "" && newImage != oldImageID {
-			s.state.ScheduleImageCleanup(name, string(oldImageID), imageName)
-		}
-
-		// Remove the renamed old container.
-		oldC, err := s.client.ListContainers(ctx)
-		if err == nil {
-			for _, c := range oldC {
-				if c.Name() == name+"-old" {
-					if stopErr := s.client.StopAndRemoveContainer(ctx, c, 30*time.Second); stopErr != nil {
-						logrus.WithError(stopErr).Warn("Failed to stop old self container (may already be gone)")
-					}
-					break
-				}
-			}
-		}
-		return
-	}
 
 	s.events.BroadcastLog(name, "Stopping container...")
 	stopStart := time.Now()
