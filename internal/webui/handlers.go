@@ -243,6 +243,8 @@ func (s *Server) performContainerUpdate(name string) {
 			s.events.BroadcastLog(name, fmt.Sprintf("Already on latest version %s (%s)", s.version, elapsed))
 			s.events.Broadcast(Event{Type: EventUpdateComplete, Container: name, Message: "Up to date"})
 			s.state.MarkUpdated(name)
+			s.state.ClearUpdateDetected(name)
+			s.state.SaveCheckResult(name, false, "", "")
 			s.state.AddHistory(HistoryEntry{
 				Container: name,
 				Timestamp: time.Now(),

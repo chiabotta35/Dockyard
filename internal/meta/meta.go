@@ -8,7 +8,7 @@ package meta
 
 var (
 	// Version is the compile-time set version of Dockyard.
-	Version = "v0.1.0"
+	Version = "v0.1.1"
 
 	// UserAgent is the HTTP client identifier derived from Version.
 	UserAgent string
