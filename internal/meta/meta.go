@@ -1,14 +1,12 @@
-// Package meta provides centralized application metadata for Watchtower.
+// Package meta provides centralized application metadata for Dockyard.
 //
-// It holds compile-time values such as the version string and derived
-// identifiers (e.g., the HTTP User-Agent header). Version is typically
-// injected via linker flags at build time; if unset it falls back to
-// "v0.0.0-unknown".
+// Version is injected at build time via -ldflags "-X ...".
+// If unset, it falls back to "v0.0.0-dev".
 package meta
 
 var (
 	// Version is the compile-time set version of Dockyard.
-	Version = "v0.1.1"
+	Version = "v0.0.0-dev"
 
 	// UserAgent is the HTTP client identifier derived from Version.
 	UserAgent string

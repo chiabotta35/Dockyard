@@ -7,7 +7,9 @@ COPY go.mod go.sum ./
 RUN go mod download
 
 COPY . .
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w -X github.com/dockyard/dockyard/internal/meta.Version=v0.1.0" -o /dockyard .
+
+ARG DOCKYARD_VERSION=dev
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w -X github.com/dockyard/dockyard/internal/meta.Version=${DOCKYARD_VERSION}" -o /dockyard .
 
 FROM alpine:3.20
 
