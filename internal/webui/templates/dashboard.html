@@ -876,7 +876,7 @@
         }, 60000);
 
         // Auto-check status + live countdown
-        var autoCheckData = { last_check: null, next_check: null, interval_ms: 0, interval_label: 'disabled' };
+        var autoCheckData = { last_check: null, next_check: null, interval_ms: 0, schedule: '' };
 
         function refreshAutoCheckStatus() {
             fetch('/api/auto-check-status')
@@ -902,7 +902,7 @@
                 lastEl.textContent = 'Last check: never';
             }
 
-            if (autoCheckData.next_check && autoCheckData.interval_ms > 0) {
+            if (autoCheckData.next_check) {
                 var remaining = Math.max(0, Math.round((new Date(autoCheckData.next_check).getTime() - Date.now()) / 1000));
                 if (remaining <= 0) {
                     nextEl.textContent = 'Next check: due now';
@@ -918,7 +918,11 @@
                 nextEl.classList.add('hidden');
             }
 
-            intervalEl.textContent = autoCheckData.interval_label !== 'disabled' ? 'Every ' + autoCheckData.interval_label : 'Auto-check disabled';
+            if (autoCheckData.schedule && autoCheckData.schedule !== '@yearly') {
+                intervalEl.textContent = 'Schedule: ' + autoCheckData.schedule;
+            } else {
+                intervalEl.textContent = 'Auto-check disabled';
+            }
         }
 
         refreshAutoCheckStatus();

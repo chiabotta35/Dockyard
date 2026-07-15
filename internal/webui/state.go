@@ -49,7 +49,6 @@ type Settings struct {
 	LifecycleHooks    bool   `json:"lifecycle_hooks"`
 	NotificationURL   string `json:"notification_url"`
 	UpdateOnStart     bool   `json:"update_on_start"`
-	AutoCheckInterval string `json:"auto_check_interval"`
 }
 
 type HistoryEntry struct {
@@ -286,25 +285,6 @@ func (s *State) GetSettings() Settings {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.Settings
-}
-
-// GetAutoCheckInterval returns the configured auto-check interval as a time.Duration.
-// Returns 0 if set to "never" or if parsing fails.
-func (s *State) GetAutoCheckInterval() time.Duration {
-	s.mu.RLock()
-	interval := s.Settings.AutoCheckInterval
-	s.mu.RUnlock()
-
-	if interval == "" || interval == "never" {
-		return 0
-	}
-
-	d, err := time.ParseDuration(interval)
-	if err != nil {
-		logrus.WithError(err).WithField("interval", interval).Warn("Invalid auto-check interval, disabling")
-		return 0
-	}
-	return d
 }
 
 func (s *State) UpdateSettings(fn func(*Settings)) error {

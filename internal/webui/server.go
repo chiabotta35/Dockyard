@@ -15,6 +15,8 @@ import (
 
 	"github.com/sirupsen/logrus"
 
+	"github.com/robfig/cron/v3"
+
 	"github.com/dockyard/dockyard/pkg/container"
 	"github.com/dockyard/dockyard/pkg/types"
 )
@@ -278,53 +280,60 @@ func (s *Server) Start(ctx context.Context) error {
 		}
 	}()
 
-	// Server-side auto-check ticker.
+	// Server-side auto-check using the cron schedule.
 	go func() {
-		var checkTicker *time.Ticker
-		var checkCh <-chan time.Time
+		parser := cron.NewParser(
+			cron.SecondOptional | cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow | cron.Descriptor,
+		)
+
+		// Re-check the schedule every 60s in case the user changes it in Settings.
 		for {
-			interval := s.state.GetAutoCheckInterval()
-			if interval > 0 {
-				if checkTicker != nil {
-					checkTicker.Stop()
-				}
-				checkTicker = time.NewTicker(interval)
-				checkCh = checkTicker.C
-				s.autoCheckMu.Lock()
-				s.nextAutoCheck = time.Now().Add(interval)
-				s.autoCheckMu.Unlock()
-				logrus.WithField("interval", interval).Info("Auto-check enabled")
-			} else {
-				if checkTicker != nil {
-					checkTicker.Stop()
-					checkTicker = nil
-				}
-				checkCh = nil
+			schedule := s.state.GetSettings().Schedule
+			if schedule == "" || schedule == "@yearly" {
 				s.autoCheckMu.Lock()
 				s.nextAutoCheck = time.Time{}
 				s.autoCheckMu.Unlock()
-				logrus.Info("Auto-check disabled (set to never)")
+
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(60 * time.Second):
+				}
+				continue
 			}
 
-			poll := time.NewTicker(5 * time.Minute)
-			defer poll.Stop()
+			sched, err := parser.Parse(schedule)
+			if err != nil {
+				logrus.WithError(err).WithField("schedule", schedule).Warn("Invalid cron schedule for auto-check")
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(60 * time.Second):
+				}
+				continue
+			}
 
+			next := sched.Next(time.Now())
+			s.autoCheckMu.Lock()
+			s.nextAutoCheck = next
+			s.autoCheckMu.Unlock()
+
+			logrus.WithFields(logrus.Fields{
+				"schedule": schedule,
+				"next":     next.Format(time.RFC3339),
+			}).Info("Auto-check scheduled")
+
+			wait := time.Until(next)
 			select {
 			case <-ctx.Done():
-				if checkTicker != nil {
-					checkTicker.Stop()
-				}
 				return
-			case <-checkCh:
-				s.autoCheckMu.Lock()
-				s.lastAutoCheck = time.Now()
-				if interval > 0 {
-					s.nextAutoCheck = time.Now().Add(interval)
-				}
-				s.autoCheckMu.Unlock()
-				s.runAutoCheck(ctx)
-			case <-poll.C:
+			case <-time.After(wait):
 			}
+
+			s.autoCheckMu.Lock()
+			s.lastAutoCheck = time.Now()
+			s.autoCheckMu.Unlock()
+			s.runAutoCheck(ctx)
 		}
 	}()
 

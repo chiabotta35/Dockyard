@@ -112,18 +112,6 @@
                         <input type="text" name="timezone" value="{{.Settings.Timezone}}" class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:ring-dock-500 focus:border-dock-500" placeholder="UTC">
                         <p class="text-xs text-gray-500 mt-1">IANA timezone (e.g. America/New_York, Europe/London)</p>
                     </div>
-                    <div>
-                        <label class="block text-sm font-medium text-gray-400 mb-1">Auto-Check Interval</label>
-                        <select name="auto_check_interval" class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:ring-dock-500 focus:border-dock-500">
-                            <option value="never" {{if eq .Settings.AutoCheckInterval "never"}}selected{{end}}>Never (manual only)</option>
-                            <option value="1h" {{if eq .Settings.AutoCheckInterval "1h"}}selected{{end}}>Every hour</option>
-                            <option value="2h" {{if eq .Settings.AutoCheckInterval "2h"}}selected{{end}}>Every 2 hours</option>
-                            <option value="6h" {{if eq .Settings.AutoCheckInterval "6h"}}selected{{end}}>Every 6 hours</option>
-                            <option value="12h" {{if eq .Settings.AutoCheckInterval "12h"}}selected{{end}}>Every 12 hours</option>
-                            <option value="24h" {{if eq .Settings.AutoCheckInterval "24h"}}selected{{end}}>Every 24 hours</option>
-                        </select>
-                        <p class="text-xs text-gray-500 mt-1">How often to check for updates in the background. Sends notification if updates or errors found.</p>
-                    </div>
                     <div class="grid grid-cols-2 gap-4">
                         <div>
                             <label class="block text-sm font-medium text-gray-400 mb-1">Cooldown Delay</label>
@@ -381,8 +369,7 @@
                 rolling_restart: false,
                 lifecycle_hooks: false,
                 notification_url: form.notification_url.value,
-                update_on_start: false,
-                auto_check_interval: form.auto_check_interval.value
+                update_on_start: false
             };
 
             fetch('/api/settings', {

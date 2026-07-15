@@ -1100,13 +1100,13 @@ func (s *Server) handleAPICheckStatus(w http.ResponseWriter, r *http.Request) {
 	nextCheck := s.nextAutoCheck
 	s.autoCheckMu.RUnlock()
 
-	interval := s.state.GetAutoCheckInterval()
+	schedule := s.state.GetSettings().Schedule
 
 	resp := map[string]interface{}{
-		"last_check":     nil,
-		"next_check":     nil,
-		"interval_ms":    0,
-		"interval_label": "disabled",
+		"last_check":  nil,
+		"next_check":  nil,
+		"schedule":    schedule,
+		"interval_ms": 0,
 	}
 
 	if !lastCheck.IsZero() {
@@ -1114,10 +1114,10 @@ func (s *Server) handleAPICheckStatus(w http.ResponseWriter, r *http.Request) {
 	}
 	if !nextCheck.IsZero() {
 		resp["next_check"] = nextCheck.Format(time.RFC3339)
-	}
-	if interval > 0 {
-		resp["interval_ms"] = interval.Milliseconds()
-		resp["interval_label"] = interval.String()
+		ms := time.Until(nextCheck).Milliseconds()
+		if ms > 0 {
+			resp["interval_ms"] = ms
+		}
 	}
 
 	s.writeJSON(w, resp)
