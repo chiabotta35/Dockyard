@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -36,6 +37,9 @@ type Server struct {
 	server          *http.Server
 	version         string
 	selfContainerID string
+	lastAutoCheck   time.Time
+	nextAutoCheck   time.Time
+	autoCheckMu     sync.RWMutex
 }
 
 type ContainerInfo struct {
@@ -237,6 +241,7 @@ func (s *Server) Start(ctx context.Context) error {
 	protected.HandleFunc("/api/update/self", s.handleAPISelfUpdate)
 	protected.HandleFunc("/api/notifications/test", s.handleAPITestNotification)
 	protected.HandleFunc("/api/logs", s.handleAPILogs)
+	protected.HandleFunc("/api/auto-check-status", s.handleAPICheckStatus)
 	protected.HandleFunc("/api/user/change-password", limitRequestBody(s.handleAPIChangePassword))
 	logrus.Debug("Registered protected page and API routes")
 
@@ -278,7 +283,6 @@ func (s *Server) Start(ctx context.Context) error {
 		var checkTicker *time.Ticker
 		var checkCh <-chan time.Time
 		for {
-			// Read interval each loop so it picks up settings changes.
 			interval := s.state.GetAutoCheckInterval()
 			if interval > 0 {
 				if checkTicker != nil {
@@ -286,6 +290,9 @@ func (s *Server) Start(ctx context.Context) error {
 				}
 				checkTicker = time.NewTicker(interval)
 				checkCh = checkTicker.C
+				s.autoCheckMu.Lock()
+				s.nextAutoCheck = time.Now().Add(interval)
+				s.autoCheckMu.Unlock()
 				logrus.WithField("interval", interval).Info("Auto-check enabled")
 			} else {
 				if checkTicker != nil {
@@ -293,11 +300,12 @@ func (s *Server) Start(ctx context.Context) error {
 					checkTicker = nil
 				}
 				checkCh = nil
+				s.autoCheckMu.Lock()
+				s.nextAutoCheck = time.Time{}
+				s.autoCheckMu.Unlock()
 				logrus.Info("Auto-check disabled (set to never)")
 			}
 
-			// Block until either a check fires or context is done.
-			// Use a shorter poll (5 min) to re-check settings in case the user changes the interval.
 			poll := time.NewTicker(5 * time.Minute)
 			defer poll.Stop()
 
@@ -308,9 +316,14 @@ func (s *Server) Start(ctx context.Context) error {
 				}
 				return
 			case <-checkCh:
+				s.autoCheckMu.Lock()
+				s.lastAutoCheck = time.Now()
+				if interval > 0 {
+					s.nextAutoCheck = time.Now().Add(interval)
+				}
+				s.autoCheckMu.Unlock()
 				s.runAutoCheck(ctx)
 			case <-poll.C:
-				// Loop back to re-read the interval setting.
 			}
 		}
 	}()
@@ -320,6 +333,9 @@ func (s *Server) Start(ctx context.Context) error {
 	// Auto-check on startup after a short delay (gives containers time to register).
 	go func() {
 		time.Sleep(10 * time.Second)
+		s.autoCheckMu.Lock()
+		s.lastAutoCheck = time.Now()
+		s.autoCheckMu.Unlock()
 		s.runAutoCheck(context.Background())
 	}()
 

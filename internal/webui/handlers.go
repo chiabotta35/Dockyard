@@ -1016,3 +1016,37 @@ func (s *Server) handleAPITestNotification(w http.ResponseWriter, r *http.Reques
 	logrus.Info("Test notification sent successfully")
 	s.writeJSON(w, map[string]string{"status": "ok", "message": "test notification sent"})
 }
+
+func (s *Server) handleAPICheckStatus(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		s.writeError(w, "method not allowed", 405)
+		return
+	}
+
+	s.autoCheckMu.RLock()
+	lastCheck := s.lastAutoCheck
+	nextCheck := s.nextAutoCheck
+	s.autoCheckMu.RUnlock()
+
+	interval := s.state.GetAutoCheckInterval()
+
+	resp := map[string]interface{}{
+		"last_check":     nil,
+		"next_check":     nil,
+		"interval_ms":    0,
+		"interval_label": "disabled",
+	}
+
+	if !lastCheck.IsZero() {
+		resp["last_check"] = lastCheck.Format(time.RFC3339)
+	}
+	if !nextCheck.IsZero() {
+		resp["next_check"] = nextCheck.Format(time.RFC3339)
+	}
+	if interval > 0 {
+		resp["interval_ms"] = interval.Milliseconds()
+		resp["interval_label"] = interval.String()
+	}
+
+	s.writeJSON(w, resp)
+}

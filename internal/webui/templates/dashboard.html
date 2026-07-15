@@ -73,7 +73,7 @@
             </div>
         </div>
 
-        <div class="grid grid-cols-6 gap-4 mb-6">
+        <div class="grid grid-cols-6 gap-4 mb-4">
             <div class="bg-gray-900 border border-gray-800 rounded-xl p-4">
                 <div class="text-sm text-gray-500">Total</div>
                 <div class="text-2xl font-bold mt-1" id="stat-total">-</div>
@@ -98,6 +98,14 @@
                 <div class="text-sm text-red-400/70">Failed</div>
                 <div class="text-2xl font-bold mt-1 text-red-400" id="stat-failed">-</div>
             </div>
+        </div>
+
+        <div id="auto-check-bar" class="flex items-center justify-between mb-4 px-4 py-2 bg-gray-900/50 border border-gray-800 rounded-lg text-xs text-gray-500">
+            <div class="flex items-center gap-4">
+                <span id="auto-last">Last check: never</span>
+                <span id="auto-next" class="hidden">Next check: calculating...</span>
+            </div>
+            <span id="auto-interval" class="text-gray-600"></span>
         </div>
 
         <div class="flex items-center gap-1 mb-4 border-b border-gray-800 pb-px" id="filter-tabs">
@@ -879,6 +887,61 @@
                 })
                 .catch(function() {});
         }, 12 * 60 * 60 * 1000);
+
+        // Auto-check status + live countdown
+        var autoCheckData = { last_check: null, next_check: null, interval_ms: 0, interval_label: 'disabled' };
+
+        function refreshAutoCheckStatus() {
+            fetch('/api/auto-check-status')
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    autoCheckData = data;
+                    renderAutoCheckBar();
+                })
+                .catch(function() {});
+        }
+
+        function renderAutoCheckBar() {
+            var lastEl = document.getElementById('auto-last');
+            var nextEl = document.getElementById('auto-next');
+            var intervalEl = document.getElementById('auto-interval');
+
+            if (autoCheckData.last_check) {
+                var ago = Math.round((Date.now() - new Date(autoCheckData.last_check).getTime()) / 1000);
+                if (ago < 60) lastEl.textContent = 'Last check: ' + ago + 's ago';
+                else if (ago < 3600) lastEl.textContent = 'Last check: ' + Math.floor(ago / 60) + 'm ' + (ago % 60) + 's ago';
+                else lastEl.textContent = 'Last check: ' + Math.floor(ago / 3600) + 'h ' + Math.floor((ago % 3600) / 60) + 'm ago';
+            } else {
+                lastEl.textContent = 'Last check: never';
+            }
+
+            if (autoCheckData.next_check && autoCheckData.interval_ms > 0) {
+                var remaining = Math.max(0, Math.round((new Date(autoCheckData.next_check).getTime() - Date.now()) / 1000));
+                if (remaining <= 0) {
+                    nextEl.textContent = 'Next check: due now';
+                } else if (remaining < 60) {
+                    nextEl.textContent = 'Next check: in ' + remaining + 's';
+                } else if (remaining < 3600) {
+                    nextEl.textContent = 'Next check: in ' + Math.floor(remaining / 60) + 'm ' + (remaining % 60) + 's';
+                } else {
+                    nextEl.textContent = 'Next check: in ' + Math.floor(remaining / 3600) + 'h ' + Math.floor((remaining % 3600) / 60) + 'm';
+                }
+                nextEl.classList.remove('hidden');
+            } else {
+                nextEl.classList.add('hidden');
+            }
+
+            intervalEl.textContent = autoCheckData.interval_label !== 'disabled' ? 'Every ' + autoCheckData.interval_label : 'Auto-check disabled';
+        }
+
+        refreshAutoCheckStatus();
+        setInterval(refreshAutoCheckStatus, 15000);
+        setInterval(renderAutoCheckBar, 1000);
+
+        // Also refresh after scan completes
+        eventSource.addEventListener('scan_complete', function(e) {
+            refreshAutoCheckStatus();
+        });
 
         // Check for Dockyard self-updates on load
         fetch('/api/update/check')
