@@ -270,6 +270,8 @@ func (s *Server) performContainerUpdate(name string) {
 		s.events.BroadcastLog(name, "Already up to date ("+elapsed.String()+")")
 		s.events.Broadcast(Event{Type: EventUpdateComplete, Container: name, Message: "Up to date"})
 		s.state.MarkUpdated(name)
+		s.state.SaveCheckResult(name, false, "", "")
+		s.state.ClearUpdateDetected(name)
 		s.state.AddHistory(HistoryEntry{
 			Container: name,
 			Timestamp: time.Now(),
@@ -345,6 +347,7 @@ func (s *Server) performContainerUpdate(name string) {
 	s.events.Broadcast(Event{Type: EventUpdateComplete, Container: name, Message: "Done"})
 	s.state.MarkUpdated(name)
 	s.state.ClearUpdateDetected(name)
+	s.state.SaveCheckResult(name, false, "", "")
 	s.state.AddHistory(HistoryEntry{
 		Container: name,
 		Timestamp: time.Now(),

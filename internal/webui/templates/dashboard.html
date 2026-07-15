@@ -561,6 +561,7 @@
                 updateStart = Date.now();
                 showUpdateProgress();
             }
+            containerLogs[name] = [];
             fetch('/api/containers/' + name + '/update', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'}
@@ -573,6 +574,8 @@
         window.checkSingle = function(name) {
             var btn = document.getElementById('check-btn-' + name);
             if (btn) { btn.disabled = true; btn.textContent = '...'; }
+            containerLogs[name] = [];
+            if (expanded[name]) renderLogPanel(name);
             fetch('/api/containers/' + encodeURIComponent(name) + '/check', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'}
@@ -640,6 +643,8 @@
             document.getElementById('check-spinner').classList.remove('hidden');
             var banner = document.getElementById('scan-banner');
             banner.classList.add('hidden');
+            containerLogs = {};
+            Object.keys(expanded).forEach(function(name) { renderLogPanel(name); });
             fetch('/api/check?scope=main', { method: 'POST' })
                 .then(function(r) { return r.json(); })
                 .then(function(results) {
@@ -776,6 +781,7 @@
         }
 
         function autoUpdateStale() {
+            if (updateTotal > 0 && updateDone < updateTotal) return;
             var toUpdate = [];
             containers.forEach(function(c) {
                 if (getVisualState(c) === 'stale' && c.update_mode === 'auto' && !c.is_self && !c.is_deferred && !isSidecar(c) && !isDatabase(c)) {
@@ -871,6 +877,8 @@
 
         // Auto-check staleness every 12 hours
         setInterval(function() {
+            containerLogs = {};
+            Object.keys(expanded).forEach(function(name) { renderLogPanel(name); });
             fetch('/api/check?scope=main', { method: 'POST' })
                 .then(function(r) { return r.json(); })
                 .then(function(results) {
