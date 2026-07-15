@@ -592,16 +592,16 @@ func (s *Server) handleAPICheckNow(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 
-			// For the self container, use GitHub version check instead of digest comparison.
-			// Digest-based checks false-positive because CI rebuilds :latest without a new release.
+			// For the self container, prefer GitHub version check.
+			// Fall back to digest comparison if GitHub is unreachable.
 			if containers[i].IsSelf {
 				updateInfo, err := CheckForUpdate(s.version)
 				if err != nil {
-					results <- result{index: i, err: err.Error()}
+					logrus.WithField("container", containers[i].Name).Debug("GitHub version check failed, falling back to digest: ", err)
+				} else {
+					results <- result{index: i, stale: updateInfo.Available}
 					return
 				}
-				results <- result{index: i, stale: updateInfo.Available}
-				return
 			}
 
 			isStale, _, err := s.client.IsContainerStale(ctx, dc, types.UpdateParams{})
@@ -806,15 +806,16 @@ func (s *Server) runAutoCheck(ctx context.Context) {
 				return
 			}
 
-			// For the self container, use GitHub version check instead of digest comparison.
+			// For the self container, prefer GitHub version check.
+			// Fall back to digest comparison if GitHub is unreachable.
 			if containers[i].IsSelf {
 				updateInfo, err := CheckForUpdate(s.version)
 				if err != nil {
-					results <- result{index: i, err: err.Error()}
+					logrus.WithField("container", containers[i].Name).Debug("GitHub version check failed, falling back to digest: ", err)
+				} else {
+					results <- result{index: i, stale: updateInfo.Available}
 					return
 				}
-				results <- result{index: i, stale: updateInfo.Available}
-				return
 			}
 
 			isStale, _, err := s.client.IsContainerStale(ctx, dc, types.UpdateParams{})
@@ -878,35 +879,39 @@ func (s *Server) handleCheckContainer(w http.ResponseWriter, r *http.Request, na
 
 	for _, dc := range dockerContainers {
 		if dc.Name() == name {
-			// For the self container, use GitHub version check instead of digest comparison.
+			// For the self container, prefer GitHub version check.
+			// Fall back to digest comparison if GitHub is unreachable.
 			isSelf := s.selfContainerID != "" && string(dc.ID()) == s.selfContainerID
 			var isStale bool
 			if isSelf {
 				updateInfo, err := CheckForUpdate(s.version)
 				if err != nil {
-					s.events.BroadcastLog(name, "Check failed: "+err.Error())
-					s.state.SaveCheckResult(name, false, err.Error(), "")
+					logrus.WithField("container", name).Debug("GitHub version check failed, falling back to digest: ", err)
+				} else {
+					if updateInfo.Available {
+						s.events.BroadcastLog(name, "Update available")
+					} else {
+						s.events.BroadcastLog(name, "Up to date")
+					}
+					s.state.SaveCheckResult(name, updateInfo.Available, "", "")
 					s.writeJSON(w, map[string]interface{}{
-						"name":        name,
-						"stale":       false,
-						"check_error": err.Error(),
+						"name":  name,
+						"stale": updateInfo.Available,
 					})
 					return
 				}
-				isStale = updateInfo.Available
-			} else {
-				var err error
-				isStale, _, err = s.client.IsContainerStale(ctx, dc, types.UpdateParams{})
-				if err != nil {
-					s.events.BroadcastLog(name, "Check failed: "+err.Error())
-					s.state.SaveCheckResult(name, false, err.Error(), "")
-					s.writeJSON(w, map[string]interface{}{
-						"name":        name,
-						"stale":       false,
-						"check_error": err.Error(),
-					})
-					return
-				}
+			}
+
+			isStale, _, err := s.client.IsContainerStale(ctx, dc, types.UpdateParams{})
+			if err != nil {
+				s.events.BroadcastLog(name, "Check failed: "+err.Error())
+				s.state.SaveCheckResult(name, false, err.Error(), "")
+				s.writeJSON(w, map[string]interface{}{
+					"name":        name,
+					"stale":       false,
+					"check_error": err.Error(),
+				})
+				return
 			}
 
 			if isStale {
