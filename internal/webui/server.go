@@ -333,11 +333,19 @@ func (s *Server) Start(ctx context.Context) error {
 				"next":     next.Format(time.RFC3339),
 			}).Info("Auto-check scheduled")
 
-			wait := time.Until(next)
-			select {
-			case <-ctx.Done():
-				return
-			case <-time.After(wait):
+			// Sleep in 30-second ticks so schedule changes are picked up quickly.
+			for time.Until(next) > 0 {
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(30 * time.Second):
+				}
+				// Re-read schedule each tick in case user changed it.
+				newSchedule := s.state.GetSettings().Schedule
+				if newSchedule != schedule {
+					logrus.WithField("new_schedule", newSchedule).Info("Auto-check schedule changed, recalculating")
+					break
+				}
 			}
 
 			s.autoCheckMu.Lock()
