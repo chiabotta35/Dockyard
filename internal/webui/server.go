@@ -313,7 +313,13 @@ func (s *Server) Start(ctx context.Context) error {
 				continue
 			}
 
-			sched, err := parser.Parse(schedule)
+			// Prepend CRON_TZ=Local if no explicit timezone is set,
+			// so "0 3 * * *" means 3 AM in the server's local timezone, not UTC.
+			parseSchedule := schedule
+			if !strings.HasPrefix(schedule, "CRON_TZ=") {
+				parseSchedule = "CRON_TZ=Local " + schedule
+			}
+			sched, err := parser.Parse(parseSchedule)
 			if err != nil {
 				logrus.WithError(err).WithField("schedule", schedule).Warn("Invalid cron schedule for auto-check")
 				select {
