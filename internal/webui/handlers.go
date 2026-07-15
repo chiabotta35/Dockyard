@@ -586,6 +586,12 @@ func (s *Server) handleAPICheckNow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if !s.checkMu.TryLock() {
+		s.writeError(w, "check already in progress", 409)
+		return
+	}
+	defer s.checkMu.Unlock()
+
 	s.events.Broadcast(Event{Type: EventScanStarted, Message: "Scan started"})
 	s.events.BroadcastLog("", "Checking all containers for updates...")
 
@@ -818,6 +824,12 @@ func (s *Server) convertDiscordURL(url string) string {
 
 // runAutoCheck performs a background staleness check (same as handleAPICheckNow but without HTTP response).
 func (s *Server) runAutoCheck(ctx context.Context) {
+	if !s.checkMu.TryLock() {
+		logrus.Info("Auto-check skipped: another check is already in progress")
+		return
+	}
+	defer s.checkMu.Unlock()
+
 	logrus.Info("Running auto-check for container updates")
 
 	containers := s.getContainerList()
@@ -1107,6 +1119,13 @@ func (s *Server) handleSSE(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		http.Error(w, "streaming not supported", 500)
 		return
+	}
+
+	// Disable write timeout for SSE so the server doesn't kill the connection
+	// every 60 seconds (the default WriteTimeout). Without this, EventSource
+	// reconnects and replays history, causing duplicate log messages.
+	if rc := http.NewResponseController(w); rc != nil {
+		rc.SetWriteDeadline(time.Time{})
 	}
 
 	ch := s.events.Subscribe()

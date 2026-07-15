@@ -44,6 +44,7 @@ type Server struct {
 	autoCheckMu     sync.RWMutex
 	updating        map[string]bool
 	updatingMu      sync.Mutex
+	checkMu         sync.Mutex // prevents concurrent check operations
 }
 
 // postUpdateCooldown is the minimum time between a successful update and the
