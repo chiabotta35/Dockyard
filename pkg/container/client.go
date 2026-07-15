@@ -220,6 +220,18 @@ type Client interface {
 	//   - error: Non-nil if removal fails, nil on success.
 	RemoveImageByID(ctx context.Context, imageID types.ImageID, imageName string) error
 
+	// PullImageByName pulls an image by its reference (e.g. "ghcr.io/owner/repo:v1.2.3").
+	// Unlike PullImage which takes a container, this works with a raw image name
+	// and is used for self-updates where the new version tag differs from the running container.
+	//
+	// Parameters:
+	//   - ctx: Context for cancellation and timeout control.
+	//   - imageName: Full image reference to pull.
+	//
+	// Returns:
+	//   - error: Non-nil if pull fails, nil on success.
+	PullImageByName(ctx context.Context, imageName string) error
+
 	// WarnOnHeadPullFailed determines whether to log a warning when a HEAD request fails during image pulls.
 	//
 	// The decision is based on the configured warning strategy and container context.
@@ -1145,6 +1157,33 @@ func (c *client) RemoveImageByID(
 		"image_name": imageName,
 	}).Debug("Cleaned up old image")
 
+	return nil
+}
+
+// PullImageByName pulls an image by its reference string using the Docker API.
+// Unlike PullImage which requires a container, this accepts a raw image name
+// (e.g. "ghcr.io/owner/repo:v1.2.3") and is used for self-updates where the
+// new version tag differs from the running container's image.
+func (c *client) PullImageByName(ctx context.Context, imageName string) error {
+	opts, err := registry.GetPullOptions(imageName)
+	if err != nil {
+		logrus.WithError(err).WithField("image", imageName).Warn("Failed to get registry auth for pull")
+	}
+
+	response, err := c.api.ImagePull(ctx, imageName, opts)
+	if err != nil {
+		logrus.WithError(err).WithField("image", imageName).Error("Failed to pull image")
+		return fmt.Errorf("pull failed for %s: %w", imageName, err)
+	}
+	defer response.Close()
+
+	// Read response to completion.
+	if _, err := io.ReadAll(response); err != nil {
+		logrus.WithError(err).WithField("image", imageName).Error("Failed to read pull response")
+		return fmt.Errorf("pull read failed for %s: %w", imageName, err)
+	}
+
+	logrus.WithField("image", imageName).Info("Image pulled successfully")
 	return nil
 }
 

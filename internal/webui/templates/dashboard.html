@@ -942,20 +942,25 @@
         // Also refresh after scan completes
         eventSource.addEventListener('scan_complete', function(e) {
             refreshAutoCheckStatus();
+            refreshSelfUpdate();
         });
 
-        // Check for Dockyard self-updates on load
-        fetch('/api/update/check')
-            .then(function(r) { return r.json(); })
-            .then(function(data) {
-                if (data.available) {
-                    var btn = document.getElementById('self-update-btn');
-                    btn.classList.remove('hidden');
-                    document.getElementById('self-update-text').textContent = 'Update to ' + esc(data.latest_version);
-                    btn.title = data.body ? data.body.substring(0, 200) : 'Update available';
-                }
-            })
-            .catch(function() {});
+        // Check for Dockyard self-updates
+        function refreshSelfUpdate() {
+            fetch('/api/update/check')
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    if (data.available) {
+                        var btn = document.getElementById('self-update-btn');
+                        btn.classList.remove('hidden');
+                        document.getElementById('self-update-text').textContent = 'Update to ' + esc(data.latest_version);
+                        btn.title = data.body ? data.body.substring(0, 200) : 'Update available';
+                    }
+                })
+                .catch(function() {});
+        }
+        refreshSelfUpdate();
+        setInterval(refreshSelfUpdate, 5 * 60 * 1000);
     })();
     </script>
 </body>

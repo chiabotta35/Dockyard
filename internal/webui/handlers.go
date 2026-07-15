@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"os/exec"
 	"strconv"
 	"strings"
 	"sync"
@@ -239,8 +238,8 @@ func (s *Server) performSelfUpdate(ctx context.Context, name string, target type
 
 	s.events.BroadcastLog(name, "Pulling new image: "+newImageRef)
 
-	// Pull the new image using Docker CLI (docker socket is mounted).
-	if err := exec.Command("docker", "pull", newImageRef).Run(); err != nil {
+	// Pull the new image via Docker API (not CLI — container is read_only).
+	if err := s.client.PullImageByName(ctx, newImageRef); err != nil {
 		s.events.BroadcastLog(name, "Failed to pull new image: "+err.Error())
 		s.events.Broadcast(Event{Type: EventUpdateFailed, Container: name, Message: "Pull failed: " + err.Error()})
 		return
