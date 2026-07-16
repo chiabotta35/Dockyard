@@ -803,13 +803,12 @@
                 .then(function(data) {
                     if (!data) return;
                     containers = data;
-                    // Initialize checked map from persisted state
+                    // Always sync checked map from server state
                     containers.forEach(function(c) {
-                        if (c.checked_at && !checked[c.name]) {
-                            if (c.check_error) checked[c.name] = 'error';
-                            else if (c.stale) checked[c.name] = 'stale';
-                            else checked[c.name] = 'ok';
-                        }
+                        if (c.check_error) checked[c.name] = 'error';
+                        else if (c.stale) checked[c.name] = 'stale';
+                        else if (c.checked_at) checked[c.name] = 'ok';
+                        else delete checked[c.name];
                     });
                     isLoading = false;
                     renderList();
@@ -841,12 +840,11 @@
         var isReplay = false;
 
         eventSource.onopen = function() {
+            // Every SSE connect replays history events — ignore them briefly.
+            isReplay = true;
+            setTimeout(function() { isReplay = false; }, 2000);
             sseReconnects++;
             if (sseReconnects > 1) {
-                // History replay floods events on reconnect — ignore them
-                // so they don't trigger reloads.
-                isReplay = true;
-                setTimeout(function() { isReplay = false; }, 2000);
                 refreshContainers(true);
             }
         };
@@ -870,9 +868,7 @@
             addLog(data.container, 'Update complete');
             updateDone++;
             updateProgress();
-            if (!isReplay) {
-                setTimeout(function() { location.reload(); }, 1500);
-            }
+            if (!isReplay) refreshContainers(true);
         });
 
         eventSource.addEventListener('update_failed', function(e) {
@@ -880,9 +876,7 @@
             addLog(data.container, 'Update failed');
             updateDone++;
             updateProgress();
-            if (!isReplay) {
-                setTimeout(function() { location.reload(); }, 1500);
-            }
+            if (!isReplay) refreshContainers(true);
         });
 
         eventSource.addEventListener('scan_started', function(e) {
@@ -893,9 +887,9 @@
         });
 
         eventSource.addEventListener('scan_complete', function(e) {
-            if (!isReplay && document.getElementById('check-btn').disabled) {
-                location.reload();
-            }
+            document.getElementById('check-btn').disabled = false;
+            document.getElementById('check-spinner').classList.add('hidden');
+            if (!isReplay) refreshContainers(true);
         });
 
         // Initial load
