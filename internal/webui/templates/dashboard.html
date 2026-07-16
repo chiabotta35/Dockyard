@@ -839,15 +839,13 @@
         var sseReconnects = 0;
 
         eventSource.onopen = function() {
-            // On (re)connect: force-refresh data so the page stays in sync
-            // after a container restart kills the old SSE connection.
             sseReconnects++;
-            refreshContainers(true);
-            refreshAutoCheckStatus();
+            if (sseReconnects > 1) {
+                location.reload();
+            }
         };
 
         eventSource.onerror = function() {
-            // EventSource auto-reconnects. Force a refresh when it reconnects.
             console.warn('SSE connection lost, reconnecting...');
         };
 
@@ -866,19 +864,15 @@
             addLog(data.container, 'Update complete');
             updateDone++;
             updateProgress();
-            checked[data.container] = 'ok';
-            refreshContainers(true);
-            // Safety-net: refresh again after 3s in case Docker API hasn't settled
-            setTimeout(function() { refreshContainers(true); }, 3000);
+            setTimeout(function() { location.reload(); }, 1500);
         });
 
         eventSource.addEventListener('update_failed', function(e) {
             var data = JSON.parse(e.data);
             addLog(data.container, 'Update failed');
-            checked[data.container] = 'error';
             updateDone++;
             updateProgress();
-            refreshContainers(true);
+            setTimeout(function() { location.reload(); }, 1500);
         });
 
         eventSource.addEventListener('scan_started', function(e) {
@@ -888,10 +882,7 @@
         });
 
         eventSource.addEventListener('scan_complete', function(e) {
-            document.getElementById('check-btn').disabled = false;
-            document.getElementById('check-spinner').classList.add('hidden');
-            refreshContainers(true);
-            refreshAutoCheckStatus();
+            location.reload();
         });
 
         // Initial load
