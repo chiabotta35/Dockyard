@@ -624,6 +624,50 @@ func (s *Server) handleSetRole(w http.ResponseWriter, r *http.Request, name stri
 	s.writeJSON(w, map[string]string{"status": "ok"})
 }
 
+func (s *Server) handleAPIStackAction(w http.ResponseWriter, r *http.Request) {
+	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/stacks/"), "/")
+	if len(parts) < 2 {
+		s.writeError(w, "usage: /api/stacks/{name}/role", 400)
+		return
+	}
+	stackName := parts[0]
+	action := parts[1]
+	switch action {
+	case "role":
+		s.handleSetStackRole(w, r, stackName)
+	default:
+		s.writeError(w, "unknown action", 400)
+	}
+}
+
+func (s *Server) handleSetStackRole(w http.ResponseWriter, r *http.Request, stackName string) {
+	if r.Method != http.MethodPost {
+		s.writeError(w, "method not allowed", 405)
+		return
+	}
+	var req struct {
+		Role string `json:"role"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.writeError(w, "invalid request body", 400)
+		return
+	}
+	switch req.Role {
+	case "sidecar", "database", "main", "":
+	default:
+		s.writeError(w, "invalid role", 400)
+		return
+	}
+	count := 0
+	for _, ci := range s.getContainerList() {
+		if ci.ComposeStack == stackName {
+			s.state.SetRoleOverride(ci.Name, req.Role)
+			count++
+		}
+	}
+	s.writeJSON(w, map[string]interface{}{"status": "ok", "updated": count})
+}
+
 func (s *Server) handleAPISettings(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:

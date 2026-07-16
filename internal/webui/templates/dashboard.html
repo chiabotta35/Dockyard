@@ -264,7 +264,7 @@
             var modeColor = c.update_mode === 'auto' ? 'text-emerald-400' : (c.update_mode === 'ignore' ? 'text-red-400' : 'text-amber-400');
             var modeLabel = c.update_mode === 'auto' ? 'Auto' : (c.update_mode === 'ignore' ? 'Ignore' : 'Manual');
             var deferBadge = c.is_deferred ? '<span class="text-xs bg-purple-500/20 text-purple-400 px-2 py-0.5 rounded-full ml-2">Deferred</span>' : '';
-            var stackBadge = c.compose_stack ? '<span class="text-xs bg-dock-500/20 text-dock-500 px-2 py-0.5 rounded-full">' + esc(c.compose_stack) + '</span>' : '';
+            var stackBadge = c.compose_stack ? '<div class="relative inline-block"><button onclick="event.stopPropagation(); toggleStackMenu(\'' + esc(c.compose_stack) + '\')" class="text-xs bg-dock-500/20 text-dock-500 px-2 py-0.5 rounded-full hover:bg-dock-500/30 cursor-pointer" title="Stack actions">' + esc(c.compose_stack) + ' &#9662;</button><div id="stack-menu-' + esc(c.compose_stack) + '" class="hidden absolute z-50 mt-1 left-0 bg-gray-800 border border-gray-700 rounded-lg shadow-lg py-1 min-w-[140px]"><div class="px-2 py-1 text-xs text-gray-500 font-medium">Mark entire stack as:</div><button onclick="event.stopPropagation(); setStackRole(\'' + esc(c.compose_stack) + '\', \'main\')" class="block w-full text-left px-3 py-1 text-xs text-gray-300 hover:bg-gray-700">Main</button><button onclick="event.stopPropagation(); setStackRole(\'' + esc(c.compose_stack) + '\', \'sidecar\')" class="block w-full text-left px-3 py-1 text-xs text-gray-300 hover:bg-gray-700">Sidecar</button><button onclick="event.stopPropagation(); setStackRole(\'' + esc(c.compose_stack) + '\', \'database\')" class="block w-full text-left px-3 py-1 text-xs text-gray-300 hover:bg-gray-700">Database</button><button onclick="event.stopPropagation(); setStackRole(\'' + esc(c.compose_stack) + '\', \'\')" class="block w-full text-left px-3 py-1 text-xs text-gray-400 hover:bg-gray-700">Auto-detect</button></div></div>' : '';
 
             var actionBtns = '';
             if (c.update_mode !== 'ignore') {
@@ -597,6 +597,27 @@
                 body: JSON.stringify({role: role})
             }).then(function() { refreshContainers(); });
         };
+
+        window.toggleStackMenu = function(stack) {
+            var menu = document.getElementById('stack-menu-' + stack);
+            if (!menu) return;
+            var wasHidden = menu.classList.contains('hidden');
+            document.querySelectorAll('[id^="stack-menu-"]').forEach(function(el) { el.classList.add('hidden'); });
+            if (wasHidden) menu.classList.remove('hidden');
+        };
+
+        window.setStackRole = function(stack, role) {
+            document.querySelectorAll('[id^="stack-menu-"]').forEach(function(el) { el.classList.add('hidden'); });
+            fetch('/api/stacks/' + stack + '/role', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({role: role})
+            }).then(function() { refreshContainers(); });
+        };
+
+        document.addEventListener('click', function() {
+            document.querySelectorAll('[id^="stack-menu-"]').forEach(function(el) { el.classList.add('hidden'); });
+        });
 
         window.triggerUpdate = function(name) {
             if (updateTotal === 0) {

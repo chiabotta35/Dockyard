@@ -401,6 +401,7 @@ func (s *Server) Start(ctx context.Context) error {
 
 	protected.HandleFunc("/api/containers", s.handleAPIContainers)
 	protected.HandleFunc("/api/containers/", s.handleAPIContainerAction)
+	protected.HandleFunc("/api/stacks/", s.handleAPIStackAction)
 	protected.HandleFunc("/api/settings", limitRequestBody(s.handleAPISettings))
 	protected.HandleFunc("/api/history", s.handleAPIHistory)
 	protected.HandleFunc("/api/check", s.handleAPICheckNow)
@@ -852,15 +853,19 @@ func (s *Server) buildContainerList(containers []types.Container) []ContainerInf
 	}
 
 	// --- Compose-based sidecar detection ---
-	// Group by compose project. In multi-container projects, containers
-	// without published ports are sidecars (workers, migrators, etc.).
+	// Group by compose project. Containers without published ports in
+	// multi-container projects are sidecars (workers, migrators, etc.).
+	// If the project has databases and all non-DB containers are portless,
+	// they're all sidecars (app behind reverse proxy pattern).
 	type projectInfo struct {
-		hasPorts  bool
-		container []int // indices into result
+		hasPorts   bool
+		hasDB      bool
+		containers []int // indices into result (non-self only)
+		dbs        []int // indices of detected DB containers in same project
 	}
 	projects := make(map[string]*projectInfo)
 	for i := range result {
-		if result[i].IsSelf || result[i].IsDatabase {
+		if result[i].IsSelf {
 			continue
 		}
 		if result[i].ComposeStack == "" {
@@ -871,20 +876,31 @@ func (s *Server) buildContainerList(containers []types.Container) []ContainerInf
 			proj = &projectInfo{}
 			projects[result[i].ComposeStack] = proj
 		}
-		proj.container = append(proj.container, i)
-		if result[i].Ports != "" {
-			proj.hasPorts = true
+		if result[i].IsDatabase {
+			proj.hasDB = true
+			proj.dbs = append(proj.dbs, i)
+		} else {
+			proj.containers = append(proj.containers, i)
+			if result[i].Ports != "" {
+				proj.hasPorts = true
+			}
 		}
 	}
 	for _, proj := range projects {
-		if len(proj.container) <= 1 {
-			continue // single-container projects are not sidecars
+		if len(proj.containers) == 0 {
+			continue
 		}
-		if !proj.hasPorts {
-			continue // no container has ports — nothing to distinguish
-		}
-		for _, idx := range proj.container {
-			if result[idx].Ports == "" {
+		if proj.hasPorts {
+			// At least one container has ports — portless ones are sidecars.
+			for _, idx := range proj.containers {
+				if result[idx].Ports == "" {
+					result[idx].IsSidecar = true
+				}
+			}
+		} else if proj.hasDB && len(proj.containers) > 1 {
+			// DB project with no port bindings (app behind reverse proxy) —
+			// all non-DB containers are sidecars (workers, migrators, etc.).
+			for _, idx := range proj.containers {
 				result[idx].IsSidecar = true
 			}
 		}
