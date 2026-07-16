@@ -232,6 +232,11 @@ type Client interface {
 	//   - error: Non-nil if pull fails, nil on success.
 	PullImageByName(ctx context.Context, imageName string) error
 
+	// ImageVersion inspects a local image by name and returns its version
+	// from OCI standard labels (org.opencontainers.image.version, org.label-schema.version).
+	// Returns empty string if no version label is found.
+	ImageVersion(ctx context.Context, imageName string) string
+
 	// WarnOnHeadPullFailed determines whether to log a warning when a HEAD request fails during image pulls.
 	//
 	// The decision is based on the configured warning strategy and container context.
@@ -1185,6 +1190,22 @@ func (c *client) PullImageByName(ctx context.Context, imageName string) error {
 
 	logrus.WithField("image", imageName).Info("Image pulled successfully")
 	return nil
+}
+
+func (c *client) ImageVersion(ctx context.Context, imageName string) string {
+	info, err := c.api.ImageInspect(ctx, imageName)
+	if err != nil {
+		return ""
+	}
+	if info.Config == nil || info.Config.Labels == nil {
+		return ""
+	}
+	for _, key := range []string{"org.opencontainers.image.version", "org.label-schema.version"} {
+		if v, ok := info.Config.Labels[key]; ok && v != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 // GetVersion returns the client's API version.

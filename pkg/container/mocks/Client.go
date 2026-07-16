@@ -594,6 +594,120 @@ func (_c *MockClient_IsContainerStale_Call) RunAndReturn(run func(ctx context.Co
 	return _c
 }
 
+// PullImageByName provides a mock function for the type MockClient
+func (_mock *MockClient) PullImageByName(ctx context.Context, imageName string) error {
+	ret := _mock.Called(ctx, imageName)
+
+	if len(ret) == 0 {
+		panic("no return value specified for PullImageByName")
+	}
+
+	var r0 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string) error); ok {
+		r0 = returnFunc(ctx, imageName)
+	} else {
+		r0 = ret.Error(0)
+	}
+	return r0
+}
+
+// MockClient_PullImageByName_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'PullImageByName'
+type MockClient_PullImageByName_Call struct {
+	*mock.Call
+}
+
+// PullImageByName is a helper method to define mock.On call
+//   - ctx context.Context
+//   - imageName string
+func (_e *MockClient_Expecter) PullImageByName(ctx interface{}, imageName interface{}) *MockClient_PullImageByName_Call {
+	return &MockClient_PullImageByName_Call{Call: _e.mock.On("PullImageByName", ctx, imageName)}
+}
+
+func (_c *MockClient_PullImageByName_Call) Run(run func(ctx context.Context, imageName string)) *MockClient_PullImageByName_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 string
+		if args[1] != nil {
+			arg1 = args[1].(string)
+		}
+		run(
+			arg0,
+			arg1,
+		)
+	})
+	return _c
+}
+
+func (_c *MockClient_PullImageByName_Call) Return(err error) *MockClient_PullImageByName_Call {
+	_c.Call.Return(err)
+	return _c
+}
+
+func (_c *MockClient_PullImageByName_Call) RunAndReturn(run func(ctx context.Context, imageName string) error) *MockClient_PullImageByName_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// ImageVersion provides a mock function for the type MockClient
+func (_mock *MockClient) ImageVersion(ctx context.Context, imageName string) string {
+	ret := _mock.Called(ctx, imageName)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ImageVersion")
+	}
+
+	var r0 string
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string) string); ok {
+		r0 = returnFunc(ctx, imageName)
+	} else {
+		r0 = ret.Get(0).(string)
+	}
+	return r0
+}
+
+// MockClient_ImageVersion_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ImageVersion'
+type MockClient_ImageVersion_Call struct {
+	*mock.Call
+}
+
+// ImageVersion is a helper method to define mock.On call
+//   - ctx context.Context
+//   - imageName string
+func (_e *MockClient_Expecter) ImageVersion(ctx interface{}, imageName interface{}) *MockClient_ImageVersion_Call {
+	return &MockClient_ImageVersion_Call{Call: _e.mock.On("ImageVersion", ctx, imageName)}
+}
+
+func (_c *MockClient_ImageVersion_Call) Run(run func(ctx context.Context, imageName string)) *MockClient_ImageVersion_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 string
+		if args[1] != nil {
+			arg1 = args[1].(string)
+		}
+		run(
+			arg0,
+			arg1,
+		)
+	})
+	return _c
+}
+
+func (_c *MockClient_ImageVersion_Call) Return(s string) *MockClient_ImageVersion_Call {
+	_c.Call.Return(s)
+	return _c
+}
+
+func (_c *MockClient_ImageVersion_Call) RunAndReturn(run func(ctx context.Context, imageName string) string) *MockClient_ImageVersion_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // ListContainers provides a mock function for the type MockClient
 func (_mock *MockClient) ListContainers(ctx context.Context, filter ...types.Filter) ([]types.Container, error) {
 	var tmpRet mock.Arguments

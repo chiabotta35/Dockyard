@@ -445,6 +445,18 @@ func (client MockClient) GetInfo(ctx context.Context) (map[string]any, error) {
 	}, nil
 }
 
+// ImageVersion returns a mock image version for testing.
+// It returns an empty string by default.
+func (client MockClient) ImageVersion(_ context.Context, _ string) string {
+	return ""
+}
+
+// PullImageByName simulates pulling an image by name.
+// It returns nil to indicate success.
+func (client MockClient) PullImageByName(_ context.Context, _ string) error {
+	return nil
+}
+
 // GetContainerLogs returns recent logs from a Docker container (mock).
 func (client MockClient) GetContainerLogs(ctx context.Context, containerID types.ContainerID, tail int) (string, error) {
 	if err := client.checkContextCancellation(ctx); err != nil {

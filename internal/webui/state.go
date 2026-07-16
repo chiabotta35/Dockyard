@@ -33,6 +33,7 @@ type ContainerState struct {
 	IsStale                bool       `json:"is_stale,omitempty"`
 	CheckedAt              *time.Time `json:"checked_at,omitempty"`
 	LatestImage            string     `json:"latest_image,omitempty"`
+	LatestVersion          string     `json:"latest_version,omitempty"`
 	UpdateDetectedAt       *time.Time `json:"update_detected_at,omitempty"`
 	LastMentionAt          *time.Time `json:"last_mention_at,omitempty"`
 }
@@ -499,7 +500,20 @@ func (s *State) ClearCheckResult(name string) error {
 		cs.CheckError = ""
 		cs.CheckedAt = nil
 		cs.LatestImage = ""
+		cs.LatestVersion = ""
 	}
+	s.mu.Unlock()
+	return s.save()
+}
+
+func (s *State) SaveLatestVersion(name string, version string) error {
+	s.mu.Lock()
+	cs, ok := s.Containers[name]
+	if !ok {
+		cs = &ContainerState{UpdateMode: ModeManual}
+		s.Containers[name] = cs
+	}
+	cs.LatestVersion = version
 	s.mu.Unlock()
 	return s.save()
 }

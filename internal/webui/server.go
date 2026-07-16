@@ -77,6 +77,8 @@ type ContainerInfo struct {
 	IsSidecar        bool              `json:"is_sidecar"`
 	CheckedAt        string            `json:"checked_at,omitempty"`
 	LatestImage      string            `json:"latest_image,omitempty"`
+	CurrentVersion   string            `json:"current_version,omitempty"`
+	LatestVersion    string            `json:"latest_version,omitempty"`
 }
 
 var dbImagePatterns = regexp.MustCompile(`(?i)^(mysql|mariadb|postgres(?:ql)?|mongo(?:db)?|redis|memcached|influxdb|timescaledb|cockroach(?:db)?|cassandra|elasticsearch|opensearch|clickhouse|neo4j|couchdb|valkey|keydb|scylladb|mssql|percona|tidb|planetscale|dragonflydb|ferretdb)`)
@@ -103,6 +105,46 @@ func isSidecarImage(image string) bool {
 		repo = repo[idx+1:]
 	}
 	return sidecarImagePatterns.MatchString(repo)
+}
+
+var versionFromTagRe = regexp.MustCompile(`^(?:v)?(\d+\.\d+(?:\.\d+)?)`)
+
+func parseImageVersion(imageName string) string {
+	tag := imageName
+	if idx := strings.LastIndex(imageName, ":"); idx != -1 {
+		tag = imageName[idx+1:]
+	}
+	if idx := strings.Index(tag, "@"); idx != -1 {
+		tag = tag[:idx]
+	}
+	tag = strings.TrimPrefix(tag, "v")
+	m := versionFromTagRe.FindStringSubmatch(tag)
+	if m != nil {
+		return m[1]
+	}
+	if tag != "latest" && tag != "stable" && tag != "edge" && tag != "alpine" && tag != "slim" {
+		if len(tag) > 0 && len(tag) < 30 && strings.ContainsAny(tag, "0123456789") {
+			return tag
+		}
+	}
+	return ""
+}
+
+var imageVersionLabels = []string{
+	"org.opencontainers.image.version",
+	"org.label-schema.version",
+}
+
+func versionFromLabels(labels map[string]string) string {
+	if labels == nil {
+		return ""
+	}
+	for _, key := range imageVersionLabels {
+		if v, ok := labels[key]; ok && v != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 func NewServer(state *State, events *EventHub, auth *AuthStore, client container.Client, filter types.Filter, addr, version string) *Server {
@@ -601,18 +643,26 @@ func (s *Server) buildContainerList(containers []types.Container) []ContainerInf
 		}
 
 		ci := ContainerInfo{
-			Name:         name,
-			Image:        c.ImageName(),
-			Stale:        c.IsStale() || cs.IsStale,
-			UpdateMode:   string(cs.UpdateMode),
-			IsDeferred:   s.state.IsDeferred(name),
-			ChangelogURL: changelogURL,
-			ImageID:      string(c.ImageID()),
-			IsSelf:       s.selfContainerID != "" && string(c.ID()) == s.selfContainerID,
-			IsDatabase:   isDatabaseImage(c.ImageName()),
-			IsSidecar:    isSidecarImage(c.ImageName()),
-			CheckError:   cs.CheckError,
-			LatestImage:  cs.LatestImage,
+			Name:           name,
+			Image:          c.ImageName(),
+			Stale:          c.IsStale() || cs.IsStale,
+			UpdateMode:     string(cs.UpdateMode),
+			IsDeferred:     s.state.IsDeferred(name),
+			ChangelogURL:   changelogURL,
+			ImageID:        string(c.ImageID()),
+			IsSelf:         s.selfContainerID != "" && string(c.ID()) == s.selfContainerID,
+			IsDatabase:     isDatabaseImage(c.ImageName()),
+			IsSidecar:      isSidecarImage(c.ImageName()),
+			CheckError:     cs.CheckError,
+			LatestImage:    cs.LatestImage,
+			CurrentVersion: parseImageVersion(c.ImageName()),
+			LatestVersion:  cs.LatestVersion,
+		}
+
+		if ci.CurrentVersion == "" {
+			if ci2 := c.ContainerInfo(); ci2 != nil && ci2.Config != nil {
+				ci.CurrentVersion = versionFromLabels(ci2.Config.Labels)
+			}
 		}
 
 		if cs.CheckedAt != nil {

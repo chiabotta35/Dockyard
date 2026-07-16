@@ -689,9 +689,10 @@ func (s *Server) handleAPICheckNow(w http.ResponseWriter, r *http.Request) {
 
 	// Check containers in parallel (max 10 concurrent for faster scans).
 	type result struct {
-		index int
-		stale bool
-		err   string
+		index        int
+		stale        bool
+		err          string
+		latestVersion string
 	}
 	results := make(chan result, limit)
 	sem := make(chan struct{}, 10)
@@ -732,7 +733,11 @@ func (s *Server) handleAPICheckNow(w http.ResponseWriter, r *http.Request) {
 				results <- result{index: i, err: err.Error()}
 				return
 			}
-			results <- result{index: i, stale: isStale}
+			var latestVersion string
+			if isStale {
+				latestVersion = s.client.ImageVersion(ctx, dc.ImageName())
+			}
+			results <- result{index: i, stale: isStale, latestVersion: latestVersion}
 		}(i)
 	}
 
@@ -762,10 +767,14 @@ func (s *Server) handleAPICheckNow(w http.ResponseWriter, r *http.Request) {
 			details = append(details, checkDetail{name: containers[res.index].Name, image: containers[res.index].Image, stale: true, isSelf: containers[res.index].IsSelf, changelogURL: containers[res.index].ChangelogURL})
 			s.state.SaveCheckResult(containers[res.index].Name, true, "", "")
 			s.state.MarkUpdateDetected(containers[res.index].Name)
+			if res.latestVersion != "" {
+				s.state.SaveLatestVersion(containers[res.index].Name, res.latestVersion)
+			}
 		} else {
 			upToDate++
 			s.state.SaveCheckResult(containers[res.index].Name, false, "", "")
 			s.state.ClearUpdateDetected(containers[res.index].Name)
+			s.state.SaveLatestVersion(containers[res.index].Name, "")
 		}
 	}
 
@@ -929,9 +938,10 @@ func (s *Server) runAutoCheck(ctx context.Context) {
 	}
 
 	type result struct {
-		index int
-		stale bool
-		err   string
+		index         int
+		stale         bool
+		err           string
+		latestVersion string
 	}
 	results := make(chan result, len(containers))
 	sem := make(chan struct{}, 10)
@@ -991,7 +1001,11 @@ func (s *Server) runAutoCheck(ctx context.Context) {
 				results <- result{index: i, err: err.Error()}
 				return
 			}
-			results <- result{index: i, stale: isStale}
+			var latestVersion string
+			if isStale {
+				latestVersion = s.client.ImageVersion(ctx, dc.ImageName())
+			}
+			results <- result{index: i, stale: isStale, latestVersion: latestVersion}
 		}(i)
 	}
 
@@ -1014,10 +1028,14 @@ func (s *Server) runAutoCheck(ctx context.Context) {
 			details = append(details, checkDetail{name: containers[res.index].Name, image: containers[res.index].Image, stale: true, isSelf: containers[res.index].IsSelf, changelogURL: containers[res.index].ChangelogURL})
 			s.state.SaveCheckResult(containers[res.index].Name, true, "", "")
 			s.state.MarkUpdateDetected(containers[res.index].Name)
+			if res.latestVersion != "" {
+				s.state.SaveLatestVersion(containers[res.index].Name, res.latestVersion)
+			}
 		} else {
 			upToDate++
 			s.state.SaveCheckResult(containers[res.index].Name, false, "", "")
 			s.state.ClearUpdateDetected(containers[res.index].Name)
+			s.state.SaveLatestVersion(containers[res.index].Name, "")
 		}
 	}
 

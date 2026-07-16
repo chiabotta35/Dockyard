@@ -221,13 +221,20 @@
 
             // Extract version tag from image reference (e.g. "nginx:1.25" → "1.25")
             var versionTag = '';
-            if (c.image) {
+            if (c.current_version) {
+                versionTag = c.current_version;
+            } else if (c.image) {
                 var parts = c.image.split(':');
                 if (parts.length > 1) {
                     versionTag = parts[parts.length - 1].split('/').pop();
                 }
             }
-            var versionBadge = versionTag ? '<span class="text-xs text-gray-500 bg-gray-800 px-2 py-0.5 rounded-full font-mono">' + esc(versionTag) + '</span>' : '';
+            var versionBadge = '';
+            if (versionTag && c.stale && c.latest_version && c.latest_version !== versionTag) {
+                versionBadge = '<span class="text-xs bg-amber-500/20 text-amber-400 px-2 py-0.5 rounded-full font-mono">' + esc(versionTag) + ' &#8594; ' + esc(c.latest_version) + '</span>';
+            } else if (versionTag) {
+                versionBadge = '<span class="text-xs text-gray-500 bg-gray-800 px-2 py-0.5 rounded-full font-mono">' + esc(versionTag) + '</span>';
+            }
 
             var statusDot, borderColor;
             switch (vs) {
@@ -295,6 +302,7 @@
                 + '<div class="p-4 space-y-4">'
                 + '<div class="grid grid-cols-2 md:grid-cols-4 gap-3">'
                 + '<div><div class="text-xs text-gray-500">Image</div><div class="text-sm font-mono text-gray-300 truncate" title="' + esc(c.image) + '">' + esc(c.image) + '</div></div>'
+                + (c.current_version ? '<div><div class="text-xs text-gray-500">Version</div><div class="text-sm font-mono text-gray-300">' + esc(c.current_version) + (c.latest_version && c.stale && c.latest_version !== c.current_version ? ' <span class="text-amber-400">&#8594; ' + esc(c.latest_version) + '</span>' : '') + '</div></div>' : '')
                 + '<div><div class="text-xs text-gray-500">Image ID</div><div class="text-sm font-mono text-gray-300">' + esc(truncate(c.image_id, 19)) + '</div></div>'
                 + '<div><div class="text-xs text-gray-500">State</div><div class="text-sm text-gray-300">' + (c.state === 'running' ? 'Running' : 'Stopped') + '</div></div>'
                 + '<div><div class="text-xs text-gray-500">Mode</div><div class="text-sm text-gray-300">' + modeLabel + '</div></div>'
@@ -303,7 +311,7 @@
                 + (c.is_deferred ? '<div><div class="text-xs text-gray-500">Deferred Until</div><div class="text-sm text-purple-400">' + esc(c.defer_until) + '</div></div>' : '')
                 + (c.check_error ? '<div class="col-span-2 bg-red-500/10 border border-red-500/30 rounded-lg p-2"><div class="text-xs text-red-400">Staleness check failed</div><div class="text-xs text-gray-400 mt-1 font-mono">' + esc(c.check_error) + '</div></div>' : '')
                 + (vs === 'ok' ? '<div class="col-span-2 bg-emerald-500/10 border border-emerald-500/30 rounded-lg p-2"><div class="text-xs text-emerald-400">Image is up to date</div></div>' : '')
-                + (c.latest_image && c.stale ? '<div class="col-span-2 bg-amber-500/10 border border-amber-500/30 rounded-lg p-2"><div class="text-xs text-amber-400">Update available</div><div class="text-xs text-gray-400 mt-1 font-mono">' + esc(c.latest_image) + (c.changelog_url ? '</div><a href="' + esc(c.changelog_url) + '" target="_blank" rel="noopener" class="text-xs text-dock-400 hover:text-dock-300 mt-1 inline-block" onclick="event.stopPropagation()">Release Notes &#8599;</a>' : '</div>') + '</div>' : '')
+                + (c.stale ? '<div class="col-span-2 bg-amber-500/10 border border-amber-500/30 rounded-lg p-2"><div class="text-xs text-amber-400">Update available</div>' + (c.current_version && c.latest_version && c.latest_version !== c.current_version ? '<div class="text-sm font-mono text-amber-300 mt-1">' + esc(c.current_version) + ' &#8594; ' + esc(c.latest_version) + '</div>' : c.latest_image ? '<div class="text-xs text-gray-400 mt-1 font-mono">' + esc(c.latest_image) + '</div>' : '') + (c.changelog_url ? '<a href="' + esc(c.changelog_url) + '" target="_blank" rel="noopener" class="text-xs text-dock-400 hover:text-dock-300 mt-1 inline-block" onclick="event.stopPropagation()">Release Notes &#8599;</a>' : '') + '</div>' : '')
                 + (c.checked_at ? '<div><div class="text-xs text-gray-500">Last Checked</div><div class="text-sm text-gray-300">' + new Date(c.checked_at).toLocaleString() + '</div></div>' : '')
                 + (c.has_previous_image ? '<div class="col-span-2"><div class="text-xs text-gray-500">Previous Image</div><div class="text-sm font-mono text-amber-400">' + esc(c.previous_image) + '</div></div>' : '')
                 + (c.is_self ? '<div class="col-span-2 bg-blue-500/10 border border-blue-500/30 rounded-lg p-2"><div class="text-xs text-blue-400">This is Dockyard. Updating starts a replacement first, then stops this one.</div></div>' : '')
