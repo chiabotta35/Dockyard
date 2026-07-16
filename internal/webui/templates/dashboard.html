@@ -827,6 +827,17 @@
 
         // --- SSE ---
         var eventSource = new EventSource('/api/events');
+        var sseReconnects = 0;
+
+        eventSource.onopen = function() {
+            // On (re)connect: force-refresh data so the page stays in sync
+            // after a container restart kills the old SSE connection.
+            sseReconnects++;
+            if (sseReconnects > 1) {
+                refreshContainers(true);
+                refreshAutoCheckStatus();
+            }
+        };
 
         eventSource.addEventListener('log_line', function(e) {
             var data = JSON.parse(e.data);
