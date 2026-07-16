@@ -149,7 +149,7 @@ func versionFromLabels(labels map[string]string) string {
 }
 
 // inferChangelogURL tries to derive a release/changelog URL for an image by
-// checking OCI labels, then falling back to well-known URL patterns.
+// checking OCI labels, well-known image mappings, and registry URL patterns.
 func inferChangelogURL(imageName string, labels map[string]string) string {
 	// 1. Explicit changelog label (Watchtower convention).
 	if labels != nil {
@@ -167,25 +167,72 @@ func inferChangelogURL(imageName string, labels map[string]string) string {
 			}
 		}
 	}
-	// 3. Docker Hub images → link to the Hub page.
+	// 3. Derive from image name.
 	repo := imageName
 	if idx := strings.Index(repo, ":"); idx != -1 {
 		repo = repo[:idx]
 	}
-	if !strings.Contains(repo, "/") {
-		// Official Docker Hub library image (e.g. "nginx").
-		return "https://hub.docker.com/_/" + repo + "/tags"
-	}
+
+	// GHCR: always GitHub releases.
 	if strings.HasPrefix(repo, "ghcr.io/") {
-		// GHCR: try to derive GitHub repo path.
 		parts := strings.SplitN(strings.TrimPrefix(repo, "ghcr.io/"), "/", 2)
 		if len(parts) == 2 {
 			return "https://github.com/" + parts[0] + "/" + parts[1] + "/releases"
 		}
 		return ""
 	}
-	// Docker Hub user/repo.
+
+	// Check well-known image mappings for GitHub releases.
+	if u := wellKnownGitHubRelease(repo); u != "" {
+		return u
+	}
+
+	// Docker Hub: official library images.
+	if !strings.Contains(repo, "/") {
+		return "https://hub.docker.com/_/" + repo + "/tags"
+	}
+	// Docker Hub: user images.
 	return "https://hub.docker.com/r/" + repo + "/tags"
+}
+
+// wellKnownGitHubRelease maps common Docker Hub image prefixes to their
+// GitHub releases page. This covers the most popular self-hosted images.
+func wellKnownGitHubRelease(repo string) string {
+	// repo is normalized: no tag, no "library/" prefix.
+	known := map[string]string{
+		"grafana/grafana":              "https://github.com/grafana/grafana/releases",
+		"prom/prometheus":              "https://github.com/prometheus/prometheus/releases",
+		"gcr.io/cadvisor/cadvisor":     "https://github.com/google/cadvisor/releases",
+		"portainer/portainer-ce":       "https://github.com/portainer/portainer/releases",
+		"linuxserver/bookstack":        "https://github.com/BookStackApp/BookStack/releases",
+		"linuxserver/paperless-ngx":    "https://github.com/paperless-ngx/paperless-ngx/releases",
+		"ghcr.io/paperless-ngx/paperless-ngx": "https://github.com/paperless-ngx/paperless-ngx/releases",
+		"jc21/nginx-proxy-manager":     "https://github.com/NginxProxyManager/nginx-proxy-manager/releases",
+		"infisical/infisical":          "https://github.com/Infisical/infisical/releases",
+		"advplyr/audiobookshelf":       "https://github.com/advplyr/audiobookshelf/releases",
+		"louislam/uptime-kuma":         "https://github.com/louislam/uptime-kuma/releases",
+		"vaultwarden/server":           "https://github.com/dani-garcia/vaultwarden/releases",
+		"homeassistant/home-assistant": "https://github.com/home-assistant/core/releases",
+		"jellyfin/jellyfin":            "https://github.com/jellyfin/jellyfin/releases",
+		"linuxserver/jellyfin":         "https://github.com/jellyfin/jellyfin/releases",
+		"containrrr/watchtower":        "https://github.com/containrrr/watchtower/releases",
+		"linuxserver/transmission":     "https://github.com/transmission/transmission/releases",
+		"linuxserver/qbittorrent":      "https://github.com/qbittorrent/qBittorrent/releases",
+		"nextcloud":                    "https://github.com/nextcloud/server/releases",
+		"immich-app/immich-server":     "https://github.com/immich-app/immich/releases",
+		"fireflyiii/core":              "https://github.com/firefly-iii/firefly-iii/releases",
+		"mealie-recipes/mealie":        "https://github.com/mealie-recipes/mealie/releases",
+		"ghcr.io/mealie-recipes/mealie": "https://github.com/mealie-recipes/mealie/releases",
+		"crowdsecurity/crowdsec":       "https://github.com/crowdsecurity/crowdsec/releases",
+	}
+	if u, ok := known[repo]; ok {
+		return u
+	}
+	// For linuxserver/* images without a specific mapping, link to their index.
+	if strings.HasPrefix(repo, "linuxserver/") {
+		return "https://github.com/linuxserver/docker-" + strings.TrimPrefix(repo, "linuxserver/") + "/releases"
+	}
+	return ""
 }
 
 func sourceToReleasesURL(src string) string {
