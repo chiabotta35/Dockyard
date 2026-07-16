@@ -38,26 +38,6 @@ func (r *rollbackContainer) ImageName() string {
 	return r.overrideImage
 }
 
-// upgradeContainer wraps a Container and overrides GetCreateConfig and
-// ImageName so that StartContainer recreates the container using a new
-// image tag (used for self-updates where the version tag changes).
-type upgradeContainer struct {
-	types.Container
-	overrideImage string
-}
-
-func (u *upgradeContainer) GetCreateConfig() *dockerContainer.Config {
-	cfg := u.Container.GetCreateConfig()
-	if cfg != nil {
-		cfg.Image = u.overrideImage
-	}
-	return cfg
-}
-
-func (u *upgradeContainer) ImageName() string {
-	return u.overrideImage
-}
-
 func (s *Server) renderTemplate(w http.ResponseWriter, name string, data interface{}) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := s.tmpl.ExecuteTemplate(w, name, data); err != nil {
@@ -229,10 +209,10 @@ func (s *Server) handleUpdateContainer(w http.ResponseWriter, r *http.Request, n
 }
 
 // performSelfUpdate handles self-updates by pulling the new version tag,
-// renaming the current container, starting a replacement, then removing
-// the old one. Unlike regular containers where we pull the same tag and
-// compare digests, the self container uses version tags (e.g. v0.1.13)
-// so we must pull the new tag explicitly.
+// then creating an ephemeral orchestrator container that stops the old
+// container, creates and starts a new one with the updated image, and
+// cleans up. The orchestrator survives the old container being stopped
+// because it is a separate container with its own lifecycle.
 func (s *Server) performSelfUpdate(ctx context.Context, name string, target types.Container, updateInfo *UpdateInfo, startTime time.Time, sessionID string) {
 	newImageRef := fmt.Sprintf("ghcr.io/%s/%s:%s", GitHubOwner, GitHubRepo, updateInfo.LatestVer)
 
@@ -251,26 +231,19 @@ func (s *Server) performSelfUpdate(ctx context.Context, name string, target type
 	oldImageID := target.ImageID()
 	oldImageName := target.ImageName()
 
-	// Rename current container to {name}-old.
-	s.events.BroadcastLog(name, "Renaming current container to "+name+"-old...")
-	if err := s.client.RenameContainer(ctx, target, name+"-old"); err != nil {
-		s.events.BroadcastLog(name, "Failed to rename: "+err.Error())
-		s.events.Broadcast(Event{Type: EventUpdateFailed, Container: name, Message: "Rename failed"})
+	// Create ephemeral orchestrator: a separate container that handles the
+	// full replacement sequence (stop old → create new → start new → remove old).
+	// This avoids port conflicts because the orchestrator is independent of
+	// the old container's lifecycle.
+	s.events.BroadcastLog(name, "Creating ephemeral orchestrator for self-update...")
+	_, err := s.client.CreateEphemeralOrchestrator(ctx, target, newImageRef, "")
+	if err != nil {
+		s.events.BroadcastLog(name, "Failed to create orchestrator: "+err.Error())
+		s.events.Broadcast(Event{Type: EventUpdateFailed, Container: name, Message: "Orchestrator failed: " + err.Error()})
 		return
 	}
 
-	// Start replacement container with the new image.
-	s.events.BroadcastLog(name, "Starting replacement container with "+updateInfo.LatestVer+"...")
-	startStart := time.Now()
-	wrapped := &upgradeContainer{Container: target, overrideImage: newImageRef}
-	newID, err := s.client.StartContainer(ctx, wrapped)
-	if err != nil {
-		s.events.BroadcastLog(name, "Failed to start replacement: "+err.Error())
-		s.events.Broadcast(Event{Type: EventUpdateFailed, Container: name, Message: "Start failed"})
-		return
-	}
-	startDuration := time.Since(startStart).Truncate(time.Millisecond)
-	s.events.BroadcastLog(name, "Replacement started ("+startDuration.String()+") — "+string(newID)[:12])
+	s.events.BroadcastLog(name, "Orchestrator started — replacement in progress")
 
 	elapsed := time.Since(startTime).Truncate(time.Millisecond)
 	s.events.BroadcastLog(name, fmt.Sprintf("Self-update complete (%s) — container is restarting", elapsed))
@@ -289,19 +262,6 @@ func (s *Server) performSelfUpdate(ctx context.Context, name string, target type
 	// Schedule old image cleanup.
 	if oldImageID != "" {
 		s.state.ScheduleImageCleanup(name, string(oldImageID), oldImageName)
-	}
-
-	// Remove the renamed old container.
-	oldC, err := s.client.ListContainers(ctx)
-	if err == nil {
-		for _, c := range oldC {
-			if c.Name() == name+"-old" {
-				if stopErr := s.client.StopAndRemoveContainer(ctx, c, 30*time.Second); stopErr != nil {
-					logrus.WithError(stopErr).Warn("Failed to stop old self container (may already be gone)")
-				}
-				break
-			}
-		}
 	}
 }
 

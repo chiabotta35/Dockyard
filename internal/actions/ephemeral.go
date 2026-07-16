@@ -327,6 +327,21 @@ func orchestrateSelfUpdate(
 		return err
 	}
 
+	// Override the old container's image to the new image tag.
+	// This is needed for Dockyard self-updates where the version tag changes
+	// (e.g., v0.1.17 -> v0.1.18). StartContainer reads the image from
+	// GetCreateConfig().Image, so we mutate it here to ensure the replacement
+	// container is created with the new image rather than the old one.
+	if newImage != "" {
+		if containerInfo := oldContainer.ContainerInfo(); containerInfo != nil && containerInfo.Config != nil {
+			clog.WithFields(logrus.Fields{
+				"old_image": containerInfo.Config.Image,
+				"new_image": newImage,
+			}).Debug("Overriding container image for replacement")
+			containerInfo.Config.Image = newImage
+		}
+	}
+
 	// Stop and remove the old container to free its name.
 	skipRemoval, err := stopAndRemoveOldContainer(
 		ctx,
