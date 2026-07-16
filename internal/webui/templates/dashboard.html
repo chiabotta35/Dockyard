@@ -839,10 +839,13 @@
             // On (re)connect: force-refresh data so the page stays in sync
             // after a container restart kills the old SSE connection.
             sseReconnects++;
-            if (sseReconnects > 1) {
-                refreshContainers(true);
-                refreshAutoCheckStatus();
-            }
+            refreshContainers(true);
+            refreshAutoCheckStatus();
+        };
+
+        eventSource.onerror = function() {
+            // EventSource auto-reconnects. Force a refresh when it reconnects.
+            console.warn('SSE connection lost, reconnecting...');
         };
 
         eventSource.addEventListener('log_line', function(e) {
@@ -862,6 +865,8 @@
             updateProgress();
             checked[data.container] = 'ok';
             refreshContainers(true);
+            // Safety-net: refresh again after 3s in case Docker API hasn't settled
+            setTimeout(function() { refreshContainers(true); }, 3000);
         });
 
         eventSource.addEventListener('update_failed', function(e) {
@@ -883,6 +888,7 @@
             document.getElementById('check-btn').disabled = false;
             document.getElementById('check-spinner').classList.add('hidden');
             refreshContainers(true);
+            refreshAutoCheckStatus();
         });
 
         // Initial load

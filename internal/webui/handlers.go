@@ -921,10 +921,12 @@ func (s *Server) runAutoCheck(ctx context.Context) {
 	defer s.checkMu.Unlock()
 
 	logrus.Info("Running auto-check for container updates")
+	s.events.Broadcast(Event{Type: EventScanStarted, Message: "Auto-check started"})
 
 	dockerContainers, err := s.client.ListContainers(ctx)
 	if err != nil {
 		logrus.WithError(err).Error("Auto-check: failed to list Docker containers")
+		s.events.Broadcast(Event{Type: EventScanComplete, Message: "Auto-check failed: " + err.Error()})
 		return
 	}
 
@@ -1063,6 +1065,9 @@ func (s *Server) runAutoCheck(ctx context.Context) {
 	}
 
 	s.sendCheckNotification(stale, failed, upToDate, len(containers), details)
+
+	msg := fmt.Sprintf("Auto-check: %d checked, %d updates, %d up to date, %d failed", len(containers), stale, upToDate, failed)
+	s.events.Broadcast(Event{Type: EventScanComplete, Message: msg})
 
 	logrus.WithFields(logrus.Fields{
 		"total":    len(containers),
