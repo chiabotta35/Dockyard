@@ -837,6 +837,8 @@ func (s *Server) buildContainerList(containers []types.Container) []ContainerInf
 
 			if c.IsRunning() {
 				ci.State = "running"
+			} else if info := c.ContainerInfo(); info != nil && info.State != nil && info.State.Restarting {
+				ci.State = "restarting"
 			} else {
 				ci.State = "stopped"
 			}

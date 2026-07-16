@@ -241,10 +241,13 @@
                 case 'stale':    statusDot = 'bg-amber-400 status-pulse'; borderColor = ' border-l-2 border-l-amber-400'; break;
                 case 'error':    statusDot = 'bg-red-400'; borderColor = ' border-l-2 border-l-red-400'; break;
                 case 'ok':       statusDot = 'bg-emerald-400'; borderColor = ' border-l-2 border-l-emerald-400'; break;
-                default:         statusDot = (c.state === 'running' ? 'bg-gray-500' : 'bg-red-400'); borderColor = ''; break;
+                default:         statusDot = (c.state === 'running' ? 'bg-gray-500' : (c.state === 'restarting' ? 'bg-red-400 status-pulse' : 'bg-red-400')); borderColor = ''; break;
             }
 
-            var stateBadge = c.state === 'running' ? '<span class="text-xs text-emerald-400">&#9679; running</span>' : '<span class="text-xs text-red-400">&#9679; stopped</span>';
+            var stateBadge;
+            if (c.state === 'running') stateBadge = '<span class="text-xs text-emerald-400">&#9679; running</span>';
+            else if (c.state === 'restarting') stateBadge = '<span class="text-xs text-red-400 status-pulse">&#9679; restarting</span>';
+            else stateBadge = '<span class="text-xs text-red-400">&#9679; stopped</span>';
 
             var statusBadge = '';
             if (vs === 'stale') {

@@ -407,8 +407,10 @@ func buildListFilterArgs(opts ClientOptions, isPodman bool) dockerClient.Filters
 		filterArgs.Add("status", "exited")
 	}
 
-	// Podman doesn't have the "restarting" status
-	if opts.IncludeRestarting && !isPodman {
+	// Always include restarting containers — they are active and the user
+	// needs to see them (e.g. crash-looping containers).
+	// Podman doesn't have the "restarting" status.
+	if !isPodman {
 		filterArgs.Add("status", "restarting")
 	}
 
