@@ -838,9 +838,15 @@
         var eventSource = new EventSource('/api/events');
         var sseReconnects = 0;
 
+        var isReplay = false;
+
         eventSource.onopen = function() {
             sseReconnects++;
             if (sseReconnects > 1) {
+                // History replay floods events on reconnect — ignore them
+                // so they don't trigger reloads.
+                isReplay = true;
+                setTimeout(function() { isReplay = false; }, 2000);
                 refreshContainers(true);
             }
         };
@@ -864,7 +870,9 @@
             addLog(data.container, 'Update complete');
             updateDone++;
             updateProgress();
-            setTimeout(function() { location.reload(); }, 1500);
+            if (!isReplay) {
+                setTimeout(function() { location.reload(); }, 1500);
+            }
         });
 
         eventSource.addEventListener('update_failed', function(e) {
@@ -872,19 +880,20 @@
             addLog(data.container, 'Update failed');
             updateDone++;
             updateProgress();
-            setTimeout(function() { location.reload(); }, 1500);
+            if (!isReplay) {
+                setTimeout(function() { location.reload(); }, 1500);
+            }
         });
 
         eventSource.addEventListener('scan_started', function(e) {
+            if (isReplay) return;
             document.getElementById('check-btn').disabled = true;
             document.getElementById('check-spinner').classList.remove('hidden');
             document.getElementById('scan-banner').classList.add('hidden');
         });
 
         eventSource.addEventListener('scan_complete', function(e) {
-            // Only reload if we're actively scanning (button disabled by scan_started).
-            // History replay on SSE reconnect sends scan_complete too — skip those.
-            if (document.getElementById('check-btn').disabled) {
+            if (!isReplay && document.getElementById('check-btn').disabled) {
                 location.reload();
             }
         });
