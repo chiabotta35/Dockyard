@@ -109,8 +109,67 @@
 
                     <div>
                         <label class="block text-sm font-medium text-gray-400 mb-1">Timezone</label>
-                        <input type="text" name="timezone" value="{{.Settings.Timezone}}" class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:ring-dock-500 focus:border-dock-500" placeholder="UTC">
-                        <p class="text-xs text-gray-500 mt-1">IANA timezone (e.g. America/New_York, Europe/London)</p>
+                        <select name="timezone" class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:ring-dock-500 focus:border-dock-500">
+                            <optgroup label="UTC">
+                                <option value="UTC" {{if eq .Settings.Timezone "UTC"}}selected{{end}}>UTC</option>
+                            </optgroup>
+                            <optgroup label="North America">
+                                <option value="America/New_York" {{if eq .Settings.Timezone "America/New_York"}}selected{{end}}>Eastern (New York)</option>
+                                <option value="America/Chicago" {{if eq .Settings.Timezone "America/Chicago"}}selected{{end}}>Central (Chicago)</option>
+                                <option value="America/Denver" {{if eq .Settings.Timezone "America/Denver"}}selected{{end}}>Mountain (Denver)</option>
+                                <option value="America/Los_Angeles" {{if eq .Settings.Timezone "America/Los_Angeles"}}selected{{end}}>Pacific (Los Angeles)</option>
+                                <option value="America/Anchorage" {{if eq .Settings.Timezone "America/Anchorage"}}selected{{end}}>Alaska (Anchorage)</option>
+                                <option value="Pacific/Honolulu" {{if eq .Settings.Timezone "Pacific/Honolulu"}}selected{{end}}>Hawaii (Honolulu)</option>
+                                <option value="America/Toronto" {{if eq .Settings.Timezone "America/Toronto"}}selected{{end}}>Eastern (Toronto)</option>
+                                <option value="America/Vancouver" {{if eq .Settings.Timezone "America/Vancouver"}}selected{{end}}>Pacific (Vancouver)</option>
+                                <option value="America/Mexico_City" {{if eq .Settings.Timezone "America/Mexico_City"}}selected{{end}}>Mexico City</option>
+                            </optgroup>
+                            <optgroup label="Europe">
+                                <option value="Europe/London" {{if eq .Settings.Timezone "Europe/London"}}selected{{end}}>London</option>
+                                <option value="Europe/Paris" {{if eq .Settings.Timezone "Europe/Paris"}}selected{{end}}>Paris</option>
+                                <option value="Europe/Berlin" {{if eq .Settings.Timezone "Europe/Berlin"}}selected{{end}}>Berlin</option>
+                                <option value="Europe/Rome" {{if eq .Settings.Timezone "Europe/Rome"}}selected{{end}}>Rome</option>
+                                <option value="Europe/Madrid" {{if eq .Settings.Timezone "Europe/Madrid"}}selected{{end}}>Madrid</option>
+                                <option value="Europe/Amsterdam" {{if eq .Settings.Timezone "Europe/Amsterdam"}}selected{{end}}>Amsterdam</option>
+                                <option value="Europe/Zurich" {{if eq .Settings.Timezone "Europe/Zurich"}}selected{{end}}>Zurich</option>
+                                <option value="Europe/Stockholm" {{if eq .Settings.Timezone "Europe/Stockholm"}}selected{{end}}>Stockholm</option>
+                                <option value="Europe/Moscow" {{if eq .Settings.Timezone "Europe/Moscow"}}selected{{end}}>Moscow</option>
+                                <option value="Europe/Istanbul" {{if eq .Settings.Timezone "Europe/Istanbul"}}selected{{end}}>Istanbul</option>
+                                <option value="Europe/Warsaw" {{if eq .Settings.Timezone "Europe/Warsaw"}}selected{{end}}>Warsaw</option>
+                                <option value="Europe/Athens" {{if eq .Settings.Timezone "Europe/Athens"}}selected{{end}}>Athens</option>
+                            </optgroup>
+                            <optgroup label="Asia">
+                                <option value="Asia/Dubai" {{if eq .Settings.Timezone "Asia/Dubai"}}selected{{end}}>Dubai</option>
+                                <option value="Asia/Kolkata" {{if eq .Settings.Timezone "Asia/Kolkata"}}selected{{end}}>India (Kolkata)</option>
+                                <option value="Asia/Singapore" {{if eq .Settings.Timezone "Asia/Singapore"}}selected{{end}}>Singapore</option>
+                                <option value="Asia/Shanghai" {{if eq .Settings.Timezone "Asia/Shanghai"}}selected{{end}}>Shanghai</option>
+                                <option value="Asia/Tokyo" {{if eq .Settings.Timezone "Asia/Tokyo"}}selected{{end}}>Tokyo</option>
+                                <option value="Asia/Seoul" {{if eq .Settings.Timezone "Asia/Seoul"}}selected{{end}}>Seoul</option>
+                                <option value="Asia/Hong_Kong" {{if eq .Settings.Timezone "Asia/Hong_Kong"}}selected{{end}}>Hong Kong</option>
+                                <option value="Asia/Taipei" {{if eq .Settings.Timezone "Asia/Taipei"}}selected{{end}}>Taipei</option>
+                                <option value="Asia/Bangkok" {{if eq .Settings.Timezone "Asia/Bangkok"}}selected{{end}}>Bangkok</option>
+                                <option value="Asia/Jakarta" {{if eq .Settings.Timezone "Asia/Jakarta"}}selected{{end}}>Jakarta</option>
+                            </optgroup>
+                            <optgroup label="Australia / Oceania">
+                                <option value="Australia/Sydney" {{if eq .Settings.Timezone "Australia/Sydney"}}selected{{end}}>Sydney</option>
+                                <option value="Australia/Melbourne" {{if eq .Settings.Timezone "Australia/Melbourne"}}selected{{end}}>Melbourne</option>
+                                <option value="Australia/Perth" {{if eq .Settings.Timezone "Australia/Perth"}}selected{{end}}>Perth</option>
+                                <option value="Pacific/Auckland" {{if eq .Settings.Timezone "Pacific/Auckland"}}selected{{end}}>Auckland</option>
+                            </optgroup>
+                            <optgroup label="South America">
+                                <option value="America/Sao_Paulo" {{if eq .Settings.Timezone "America/Sao_Paulo"}}selected{{end}}>Sao Paulo</option>
+                                <option value="America/Buenos_Aires" {{if eq .Settings.Timezone "America/Buenos_Aires"}}selected{{end}}>Buenos Aires</option>
+                                <option value="America/Bogota" {{if eq .Settings.Timezone "America/Bogota"}}selected{{end}}>Bogota</option>
+                            </optgroup>
+                            <optgroup label="Africa">
+                                <option value="Africa/Cairo" {{if eq .Settings.Timezone "Africa/Cairo"}}selected{{end}}>Cairo</option>
+                                <option value="Africa/Lagos" {{if eq .Settings.Timezone "Africa/Lagos"}}selected{{end}}>Lagos</option>
+                                <option value="Africa/Johannesburg" {{if eq .Settings.Timezone "Africa/Johannesburg"}}selected{{end}}>Johannesburg</option>
+                            </optgroup>
+                            <optgroup label="System">
+                                <option value="Local" {{if eq .Settings.Timezone "Local"}}selected{{end}}>System local time</option>
+                            </optgroup>
+                        </select>
                     </div>
                     <div class="grid grid-cols-2 gap-4">
                         <div>

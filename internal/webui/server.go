@@ -45,6 +45,7 @@ type Server struct {
 	updating        map[string]bool
 	updatingMu      sync.Mutex
 	checkMu         sync.Mutex // prevents concurrent check operations
+	scheduleChanged  chan struct{} // signals the cron goroutine to re-evaluate
 }
 
 // postUpdateCooldown is the minimum time between a successful update and the
@@ -153,14 +154,15 @@ func NewServer(state *State, events *EventHub, auth *AuthStore, client container
 		"addr":    addr,
 	}).Info("Creating web UI server")
 	s := &Server{
-		state:    state,
-		events:   events,
-		auth:     auth,
-		client:   client,
-		filter:   filter,
-		addr:     addr,
-		version:  version,
-		updating: make(map[string]bool),
+		state:           state,
+		events:          events,
+		auth:            auth,
+		client:          client,
+		filter:          filter,
+		addr:            addr,
+		version:         version,
+		updating:        make(map[string]bool),
+		scheduleChanged: make(chan struct{}, 1),
 	}
 	s.detectSelfContainer()
 	s.loadTemplates()
@@ -339,9 +341,13 @@ func (s *Server) Start(ctx context.Context) error {
 			cron.SecondOptional | cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow | cron.Descriptor,
 		)
 
-		// Re-check the schedule every 60s in case the user changes it in Settings.
 		for {
-			schedule := s.state.GetSettings().Schedule
+			settings := s.state.GetSettings()
+			schedule := settings.Schedule
+			timezone := settings.Timezone
+			if timezone == "" {
+				timezone = "Local"
+			}
 			if schedule == "" || schedule == "@yearly" {
 				s.autoCheckMu.Lock()
 				s.nextAutoCheck = time.Time{}
@@ -350,16 +356,16 @@ func (s *Server) Start(ctx context.Context) error {
 				select {
 				case <-ctx.Done():
 					return
+				case <-s.scheduleChanged:
 				case <-time.After(60 * time.Second):
 				}
 				continue
 			}
 
-			// Prepend CRON_TZ=Local if no explicit timezone is set,
-			// so "0 3 * * *" means 3 AM in the server's local timezone, not UTC.
+			// Use the configured timezone from Settings.
 			parseSchedule := schedule
 			if !strings.HasPrefix(schedule, "CRON_TZ=") {
-				parseSchedule = "CRON_TZ=Local " + schedule
+				parseSchedule = "CRON_TZ=" + timezone + " " + schedule
 			}
 			sched, err := parser.Parse(parseSchedule)
 			if err != nil {
@@ -367,6 +373,7 @@ func (s *Server) Start(ctx context.Context) error {
 				select {
 				case <-ctx.Done():
 					return
+				case <-s.scheduleChanged:
 				case <-time.After(60 * time.Second):
 				}
 				continue
@@ -379,20 +386,24 @@ func (s *Server) Start(ctx context.Context) error {
 
 			logrus.WithFields(logrus.Fields{
 				"schedule": schedule,
+				"timezone": timezone,
 				"next":     next.Format(time.RFC3339),
 			}).Info("Auto-check scheduled")
 
-			// Sleep in 30-second ticks so schedule changes are picked up quickly.
+			// Sleep until next check, but re-evaluate if settings change.
 			for time.Until(next) > 0 {
 				select {
 				case <-ctx.Done():
 					return
+				case <-s.scheduleChanged:
+					logrus.Info("Auto-check schedule change signaled, recalculating")
+					break
 				case <-time.After(30 * time.Second):
 				}
 				// Re-read schedule each tick in case user changed it.
-				newSchedule := s.state.GetSettings().Schedule
-				if newSchedule != schedule {
-					logrus.WithField("new_schedule", newSchedule).Info("Auto-check schedule changed, recalculating")
+				newSettings := s.state.GetSettings()
+				if newSettings.Schedule != schedule || newSettings.Timezone != timezone {
+					logrus.WithFields(logrus.Fields{"new_schedule": newSettings.Schedule, "new_tz": newSettings.Timezone}).Info("Auto-check schedule changed, recalculating")
 					break
 				}
 			}

@@ -616,12 +616,25 @@ func (s *Server) handleAPISettings(w http.ResponseWriter, r *http.Request) {
 		if settings.ImageRetentionHrs < 0 || settings.ImageRetentionHrs > 720 {
 			settings.ImageRetentionHrs = 24
 		}
+
+		// Capture old schedule/tz to detect changes.
+		old := s.state.GetSettings()
+
 		if err := s.state.UpdateSettings(func(curr *Settings) {
 			*curr = settings
 		}); err != nil {
 			s.writeError(w, "failed to save", 500)
 			return
 		}
+
+		// Signal the cron goroutine if schedule or timezone changed.
+		if settings.Schedule != old.Schedule || settings.Timezone != old.Timezone {
+			select {
+			case s.scheduleChanged <- struct{}{}:
+			default:
+			}
+		}
+
 		s.writeJSON(w, map[string]string{"status": "ok"})
 	default:
 		s.writeError(w, "method not allowed", 405)
