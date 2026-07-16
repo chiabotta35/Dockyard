@@ -119,6 +119,8 @@ func (s *Server) handleAPIContainerAction(w http.ResponseWriter, r *http.Request
 		s.handleRollbackContainer(w, r, name)
 	case "check":
 		s.handleCheckContainer(w, r, name)
+	case "role":
+		s.handleSetRole(w, r, name)
 	case "logs":
 		s.handleContainerLogs(w, r, name)
 	default:
@@ -597,6 +599,28 @@ func (s *Server) handleSetChangelog(w http.ResponseWriter, r *http.Request, name
 		s.writeError(w, "failed to save", 500)
 		return
 	}
+	s.writeJSON(w, map[string]string{"status": "ok"})
+}
+
+func (s *Server) handleSetRole(w http.ResponseWriter, r *http.Request, name string) {
+	if r.Method != http.MethodPost {
+		s.writeError(w, "method not allowed", 405)
+		return
+	}
+	var req struct {
+		Role string `json:"role"` // "sidecar", "database", "main", or "" for auto-detect
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.writeError(w, "invalid request body", 400)
+		return
+	}
+	switch req.Role {
+	case "sidecar", "database", "main", "":
+	default:
+		s.writeError(w, "invalid role: must be sidecar, database, main, or empty", 400)
+		return
+	}
+	s.state.SetRoleOverride(name, req.Role)
 	s.writeJSON(w, map[string]string{"status": "ok"})
 }
 

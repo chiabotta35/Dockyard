@@ -332,6 +332,12 @@
                 + '<option value="auto"' + (c.update_mode === 'auto' ? ' selected' : '') + '>Auto</option>'
                 + '<option value="ignore"' + (c.update_mode === 'ignore' ? ' selected' : '') + '>Ignore</option>'
                 + '</select>'
+                + '<select onchange="setRole(\'' + n + '\', this.value)" class="bg-gray-800 border border-gray-700 text-gray-300 text-xs rounded-lg px-2 py-1" title="Container role">'
+                + '<option value="">Auto</option>'
+                + '<option value="main"' + (c.role_override === 'main' ? ' selected' : '') + '>Main</option>'
+                + '<option value="sidecar"' + (c.role_override === 'sidecar' ? ' selected' : '') + '>Sidecar</option>'
+                + '<option value="database"' + (c.role_override === 'database' ? ' selected' : '') + '>Database</option>'
+                + '</select>'
                 + (c.update_mode !== 'ignore' ? (
                     c.is_deferred
                         ? '<button onclick="cancelDefer(\'' + n + '\')" class="text-xs bg-purple-500/20 hover:bg-purple-500/30 text-purple-400 px-2 py-1 rounded">Cancel Defer</button>'
@@ -581,6 +587,14 @@
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({mode: mode})
+            }).then(function() { refreshContainers(); });
+        };
+
+        window.setRole = function(name, role) {
+            fetch('/api/containers/' + name + '/role', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({role: role})
             }).then(function() { refreshContainers(); });
         };
 

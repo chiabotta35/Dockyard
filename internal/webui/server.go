@@ -76,6 +76,7 @@ type ContainerInfo struct {
 	CheckError       string            `json:"check_error,omitempty"`
 	IsDatabase       bool              `json:"is_database"`
 	IsSidecar        bool              `json:"is_sidecar"`
+	RoleOverride     string            `json:"role_override,omitempty"`
 	CheckedAt        string            `json:"checked_at,omitempty"`
 	LatestImage      string            `json:"latest_image,omitempty"`
 	CurrentVersion   string            `json:"current_version,omitempty"`
@@ -809,7 +810,8 @@ func (s *Server) buildContainerList(containers []types.Container) []ContainerInf
 				ImageID:        string(c.ImageID()),
 				IsSelf:         s.selfContainerID != "" && string(c.ID()) == s.selfContainerID,
 				IsDatabase:     isDatabaseImage(c.ImageName()),
-				IsSidecar:      isSidecarImage(c.ImageName()),
+				IsSidecar:      false, // determined below
+				RoleOverride:   cs.RoleOverride,
 				CheckError:     cs.CheckError,
 				LatestImage:    cs.LatestImage,
 				CurrentVersion: parseImageVersion(c.ImageName()),
@@ -861,6 +863,62 @@ func (s *Server) buildContainerList(containers []types.Container) []ContainerInf
 			result = append(result, ci)
 		}()
 	}
+
+	// --- Compose-based sidecar detection ---
+	// Group by compose project. In multi-container projects, containers
+	// without published ports are sidecars (workers, migrators, etc.).
+	type projectInfo struct {
+		hasPorts  bool
+		container []int // indices into result
+	}
+	projects := make(map[string]*projectInfo)
+	for i := range result {
+		if result[i].IsSelf || result[i].IsDatabase {
+			continue
+		}
+		if result[i].ComposeStack == "" {
+			continue
+		}
+		proj := projects[result[i].ComposeStack]
+		if proj == nil {
+			proj = &projectInfo{}
+			projects[result[i].ComposeStack] = proj
+		}
+		proj.container = append(proj.container, i)
+		if result[i].Ports != "" {
+			proj.hasPorts = true
+		}
+	}
+	for _, proj := range projects {
+		if len(proj.container) <= 1 {
+			continue // single-container projects are not sidecars
+		}
+		if !proj.hasPorts {
+			continue // no container has ports — nothing to distinguish
+		}
+		for _, idx := range proj.container {
+			if result[idx].Ports == "" {
+				result[idx].IsSidecar = true
+			}
+		}
+	}
+
+	// --- Apply user overrides ---
+	for i := range result {
+		cs := s.state.GetContainerState(result[i].Name)
+		switch cs.RoleOverride {
+		case "sidecar":
+			result[i].IsSidecar = true
+			result[i].IsDatabase = false
+		case "database":
+			result[i].IsDatabase = true
+			result[i].IsSidecar = false
+		case "main":
+			result[i].IsSidecar = false
+			result[i].IsDatabase = false
+		}
+	}
+
 	return result
 }
 

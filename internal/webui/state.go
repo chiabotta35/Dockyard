@@ -36,6 +36,7 @@ type ContainerState struct {
 	LatestVersion          string     `json:"latest_version,omitempty"`
 	UpdateDetectedAt       *time.Time `json:"update_detected_at,omitempty"`
 	LastMentionAt          *time.Time `json:"last_mention_at,omitempty"`
+	RoleOverride           string     `json:"role_override,omitempty"` // "sidecar", "database", or "" for auto-detect
 }
 
 type Settings struct {
@@ -339,6 +340,18 @@ func (s *State) SetChangelogURL(name, url string) error {
 	cs.ChangelogURL = url
 	s.mu.Unlock()
 	return s.save()
+}
+
+func (s *State) SetRoleOverride(name, role string) {
+	s.mu.Lock()
+	cs, ok := s.Containers[name]
+	if !ok {
+		cs = &ContainerState{UpdateMode: ModeManual}
+		s.Containers[name] = cs
+	}
+	cs.RoleOverride = role
+	s.mu.Unlock()
+	s.save()
 }
 
 func (s *State) MarkUpdated(name string) error {
