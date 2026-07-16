@@ -187,12 +187,21 @@ func inferChangelogURL(imageName string, labels map[string]string) string {
 		return u
 	}
 
-	// Docker Hub: official library images.
+	// Docker Hub: official library images (no org) — link to tags page.
 	if !strings.Contains(repo, "/") {
 		return "https://hub.docker.com/_/" + repo + "/tags"
 	}
-	// Docker Hub: user images.
-	return "https://hub.docker.com/r/" + repo + "/tags"
+
+	// Docker Hub: org/repo images — guess GitHub releases from the image name.
+	// Most open-source Docker Hub images have a matching GitHub repo at
+	// github.com/{org}/{repo}. This is a best-effort guess; the user gets a
+	// 404 if the repo doesn't exist, which is still more useful than a
+	// Docker Hub tags page for release notes.
+	parts := strings.SplitN(repo, "/", 2)
+	if len(parts) == 2 {
+		return "https://github.com/" + parts[0] + "/" + parts[1] + "/releases"
+	}
+	return ""
 }
 
 // wellKnownGitHubRelease maps common Docker Hub image prefixes to their

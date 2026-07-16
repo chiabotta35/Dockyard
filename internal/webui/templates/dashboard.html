@@ -277,9 +277,7 @@
             if (c.has_previous_image) {
                 actionBtns += '<button onclick="event.stopPropagation(); rollbackContainer(\'' + n + '\')" class="bg-amber-600 hover:bg-amber-700 text-white px-3 py-1.5 rounded-lg text-xs font-medium transition-colors" title="Rollback">Rollback</button>';
             }
-            if (c.changelog_url) {
-                actionBtns += '<a href="' + esc(c.changelog_url) + '" target="_blank" rel="noopener" onclick="event.stopPropagation()" class="bg-gray-700 hover:bg-gray-600 text-gray-300 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors" title="Release Notes">Notes &#8599;</a>';
-            }
+
 
             var logCount = (containerLogs[c.name] || []).length;
             var logBadge = logCount > 0 ? '<span class="text-xs text-gray-600 ml-2">' + logCount + '</span>' : '';
@@ -366,9 +364,10 @@
 
         function renderList() {
             var filtered = getFiltered();
-            var regular = filtered.filter(function(c) { return !isDatabase(c) && !isSidecar(c); });
-            var databases = filtered.filter(function(c) { return isDatabase(c); });
-            var sidecars = filtered.filter(function(c) { return isSidecar(c); });
+            var byName = function(a, b) { return a.name.localeCompare(b.name); };
+            var regular = filtered.filter(function(c) { return !isDatabase(c) && !isSidecar(c); }).sort(byName);
+            var databases = filtered.filter(function(c) { return isDatabase(c); }).sort(byName);
+            var sidecars = filtered.filter(function(c) { return isSidecar(c); }).sort(byName);
             var grid = document.getElementById('container-grid');
             var dbGrid = document.getElementById('database-grid');
             var dbToggle = document.getElementById('db-toggle');
