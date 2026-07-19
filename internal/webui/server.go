@@ -42,6 +42,7 @@ type Server struct {
 	lastAutoCheck   time.Time
 	nextAutoCheck   time.Time
 	autoCheckMu     sync.RWMutex
+	lastPurge       time.Time
 	updating        map[string]bool
 	updatingMu      sync.Mutex
 	checkMu         sync.Mutex // prevents concurrent check operations
@@ -534,6 +535,9 @@ func (s *Server) Start(ctx context.Context) error {
 				return
 			case <-ticker.C:
 				s.purgeExpiredImages()
+				s.autoCheckMu.Lock()
+				s.lastPurge = time.Now()
+				s.autoCheckMu.Unlock()
 			}
 		}
 	}()

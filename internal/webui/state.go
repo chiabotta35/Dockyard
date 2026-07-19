@@ -25,6 +25,7 @@ type PreviousImageEntry struct {
 	Image     string    `json:"image"`
 	ImageID   string    `json:"image_id"`
 	Timestamp time.Time `json:"timestamp"`
+	Pinned    bool      `json:"pinned,omitempty"`
 }
 
 type ContainerState struct {
@@ -405,8 +406,8 @@ func (s *State) GetPreviousImages(name string) []PreviousImageEntry {
 
 func (s *State) ClearPreviousImages(name string) error {
 	s.mu.Lock()
-	if cs, ok := s.Containers[name]; ok {
-		cs.PreviousImages = nil
+	if _, ok := s.Containers[name]; ok {
+		s.Containers[name].PreviousImages = nil
 	}
 	s.mu.Unlock()
 	return s.save()
@@ -415,7 +416,16 @@ func (s *State) ClearPreviousImages(name string) error {
 func (s *State) RemovePreviousImage(name string, index int) error {
 	s.mu.Lock()
 	if cs, ok := s.Containers[name]; ok && index >= 0 && index < len(cs.PreviousImages) {
-		cs.PreviousImages = append(cs.PreviousImages[:index], cs.PreviousImages[index+1:]...)
+		s.Containers[name].PreviousImages = append(cs.PreviousImages[:index], cs.PreviousImages[index+1:]...)
+	}
+	s.mu.Unlock()
+	return s.save()
+}
+
+func (s *State) PinPreviousImage(name string, index int, pinned bool) error {
+	s.mu.Lock()
+	if cs, ok := s.Containers[name]; ok && index >= 0 && index < len(cs.PreviousImages) {
+		s.Containers[name].PreviousImages[index].Pinned = pinned
 	}
 	s.mu.Unlock()
 	return s.save()
@@ -448,7 +458,7 @@ func (s *State) PurgeExpiredImages() []ExpiredImage {
 		}
 		var kept []PreviousImageEntry
 		for _, pi := range cs.PreviousImages {
-			if pi.Timestamp.Before(cutoff) {
+			if !pi.Pinned && pi.Timestamp.Before(cutoff) {
 				removed = append(removed, ExpiredImage{Name: name, ImageID: pi.ImageID, Image: pi.Image, SavedAt: pi.Timestamp})
 			} else {
 				kept = append(kept, pi)

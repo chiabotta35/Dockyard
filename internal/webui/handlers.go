@@ -119,6 +119,8 @@ func (s *Server) handleAPIContainerAction(w http.ResponseWriter, r *http.Request
 		s.handleRollbackContainer(w, r, name)
 	case "clear-image":
 		s.handleClearOldImage(w, r, name)
+	case "pin-image":
+		s.handlePinImage(w, r, name)
 	case "check":
 		s.handleCheckContainer(w, r, name)
 	case "role":
@@ -487,7 +489,8 @@ func (s *Server) handleRollbackContainer(w http.ResponseWriter, r *http.Request,
 		s.events.Broadcast(Event{Type: EventUpdateStarted, Container: name, Message: "Rollback", Data: map[string]string{"session_id": sessionID}})
 		startTime := time.Now()
 
-		ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
 		containers, err := s.client.ListContainers(ctx)
 		if err != nil {
 			s.events.BroadcastLog(name, "Failed to list containers: "+err.Error())
@@ -628,6 +631,26 @@ func (s *Server) handleClearOldImage(w http.ResponseWriter, r *http.Request, nam
 		}
 	}
 
+	s.writeJSON(w, map[string]string{"status": "ok"})
+}
+
+func (s *Server) handlePinImage(w http.ResponseWriter, r *http.Request, name string) {
+	if r.Method != http.MethodPost {
+		s.writeError(w, "method not allowed", 405)
+		return
+	}
+	var req struct {
+		Index  int  `json:"index"`
+		Pinned bool `json:"pinned"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.writeError(w, "invalid request body", 400)
+		return
+	}
+	if err := s.state.PinPreviousImage(name, req.Index, req.Pinned); err != nil {
+		s.writeError(w, err.Error(), 500)
+		return
+	}
 	s.writeJSON(w, map[string]string{"status": "ok"})
 }
 
@@ -1479,6 +1502,7 @@ func (s *Server) handleAPICheckStatus(w http.ResponseWriter, r *http.Request) {
 	s.autoCheckMu.RLock()
 	lastCheck := s.lastAutoCheck
 	nextCheck := s.nextAutoCheck
+	lastPurge := s.lastPurge
 	s.autoCheckMu.RUnlock()
 
 	schedule := s.state.GetSettings().Schedule
@@ -1490,6 +1514,7 @@ func (s *Server) handleAPICheckStatus(w http.ResponseWriter, r *http.Request) {
 		"schedule":           schedule,
 		"interval_ms":        0,
 		"image_retention_min": retentionMin,
+		"last_purge":         nil,
 	}
 
 	if !lastCheck.IsZero() {
@@ -1501,6 +1526,9 @@ func (s *Server) handleAPICheckStatus(w http.ResponseWriter, r *http.Request) {
 		if ms > 0 {
 			resp["interval_ms"] = ms
 		}
+	}
+	if !lastPurge.IsZero() {
+		resp["last_purge"] = lastPurge.Format(time.RFC3339)
 	}
 
 	s.writeJSON(w, resp)
