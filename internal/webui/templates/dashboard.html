@@ -314,8 +314,8 @@
                 + '<div class="w-2.5 h-2.5 rounded-full ' + statusDot + '"></div>'
                 + '<h3 class="font-semibold text-white truncate">' + n + '</h3>'
                 + (c.is_self ? '<span class="text-xs bg-blue-500/20 text-blue-400 px-2 py-0.5 rounded-full">Self</span>' : '')
-                + (c.previous_images && c.previous_images.length > 0 ? '<span class="text-xs bg-amber-500/20 text-amber-400 px-2 py-0.5 rounded-full" title="' + c.previous_images.length + ' old image(s) available">' + c.previous_images.length + ' old</span>' : '')
                 + versionBadge + statusBadge + stackBadge + deferBadge + logBadge
+                + (c.previous_images && c.previous_images.length > 0 ? '<span class="text-xs bg-amber-500/20 text-amber-400 px-2 py-0.5 rounded-full" title="' + c.previous_images.length + ' old image(s) available">' + c.previous_images.length + ' old</span>' : '')
                 + '</div>'
                 + '<p class="text-xs text-gray-500 font-mono truncate ml-7 mb-1">' + esc(c.image) + '</p>'
                 + '<div class="flex items-center gap-3 text-xs text-gray-500 ml-7">'
@@ -903,12 +903,21 @@
                 .then(function(data) {
                     if (!data) return;
                     containers = data;
-                    // Always sync checked map from server state
+                    // Sync checked map from server state, but don't downgrade
+                    // entries that were set by a local check (checkAll/checkSingle).
                     containers.forEach(function(c) {
-                        if (c.check_error) checked[c.name] = 'error';
-                        else if (c.stale) checked[c.name] = 'stale';
-                        else if (c.checked_at) checked[c.name] = 'ok';
-                        else delete checked[c.name];
+                        var current = checked[c.name];
+                        if (current === 'stale' || current === 'error' || current === 'ok') {
+                            // Keep local check result — server may not have persisted yet.
+                        } else if (c.check_error) {
+                            checked[c.name] = 'error';
+                        } else if (c.stale) {
+                            checked[c.name] = 'stale';
+                        } else if (c.checked_at) {
+                            checked[c.name] = 'ok';
+                        } else {
+                            delete checked[c.name];
+                        }
                     });
                     isLoading = false;
                     renderList();
