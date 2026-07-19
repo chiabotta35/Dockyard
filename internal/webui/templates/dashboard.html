@@ -947,16 +947,23 @@
                 var data = JSON.parse(e.data);
                 addLog(data.container, 'Update complete');
                 var bar = document.getElementById('card-progress-' + data.container);
-                if (bar) { bar.style.width = '100%'; bar.style.background = 'rgb(16, 185, 129)'; setTimeout(function() { bar.classList.add('hidden'); bar.style.width = '0%'; bar.style.background = ''; }, 2000); }
+                if (bar) { bar.style.width = '100%'; bar.style.background = 'rgb(16, 185, 129)'; setTimeout(function() { var b = document.getElementById('card-progress-' + data.container); if (b) { b.classList.add('hidden'); b.style.width = '0%'; b.style.background = ''; } }, 2000); }
                 if (!isReplay) refreshContainers(true);
             });
 
             eventSource.addEventListener('update_failed', function(e) {
                 var data = JSON.parse(e.data);
                 addLog(data.container, 'Update failed');
+                showToast(data.container + ': update failed', 'error');
                 var bar = document.getElementById('card-progress-' + data.container);
-                if (bar) { bar.style.width = '100%'; bar.style.background = 'rgb(239, 68, 68)'; setTimeout(function() { bar.classList.add('hidden'); bar.style.width = '0%'; bar.style.background = ''; }, 2000); }
+                if (bar) { bar.style.width = '100%'; bar.style.background = 'rgb(239, 68, 68)'; setTimeout(function() { var b = document.getElementById('card-progress-' + data.container); if (b) { b.classList.add('hidden'); b.style.width = '0%'; b.style.background = ''; } }, 2000); }
                 if (!isReplay) refreshContainers(true);
+                var selfC = containers.find(function(c) { return c.is_self; });
+                if (selfC && selfC.name === data.container) {
+                    var ov = document.getElementById('restart-overlay');
+                    if (ov) ov.classList.add('hidden');
+                    restartBannerShown = false;
+                }
             });
 
             eventSource.addEventListener('scan_started', function(e) {
