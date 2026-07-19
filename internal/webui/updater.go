@@ -123,7 +123,6 @@ func CheckForUpdateForce(currentVersion string, force bool) (*UpdateInfo, error)
 	}
 
 	if latestTag == "" || latestVer == nil {
-		// No versioned tags found.
 		info := &UpdateInfo{
 			Available:  false,
 			CurrentVer: currentVersion,
@@ -135,6 +134,10 @@ func CheckForUpdateForce(currentVersion string, force bool) (*UpdateInfo, error)
 	}
 
 	available := curVer == nil || versionLess(curVer, latestVer)
+	if available && !isImageReady(client, latestTag) {
+		available = false
+	}
+
 	info := &UpdateInfo{
 		Available:  available,
 		CurrentVer: currentVersion,
@@ -145,4 +148,45 @@ func CheckForUpdateForce(currentVersion string, force bool) (*UpdateInfo, error)
 	lastUpdateCheck = info
 	lastCheckTime = time.Now()
 	return info, nil
+}
+
+// isImageReady checks whether the Docker image for the given tag has been
+// pushed to ghcr.io. It authenticates with the registry, then does a HEAD
+// request for the manifest. Returns false if the image isn't available yet.
+func isImageReady(client *http.Client, tag string) bool {
+	imageRef := fmt.Sprintf("%s/%s", GitHubOwner, GitHubRepo)
+
+	// Get an anonymous pull token from the registry.
+	tokenURL := fmt.Sprintf("https://ghcr.io/token?service=ghcr.io&scope=repository:%s:pull", imageRef)
+	tokenResp, err := client.Get(tokenURL)
+	if err != nil {
+		return false
+	}
+	defer tokenResp.Body.Close()
+	if tokenResp.StatusCode != 200 {
+		return false
+	}
+	var tokenData struct {
+		Token string `json:"token"`
+	}
+	if err := json.NewDecoder(tokenResp.Body).Decode(&tokenData); err != nil || tokenData.Token == "" {
+		return false
+	}
+
+	// HEAD the manifest for the tag.
+	manifestURL := fmt.Sprintf("https://ghcr.io/v2/%s/manifests/%s", imageRef, tag)
+	req, err := http.NewRequest("HEAD", manifestURL, nil)
+	if err != nil {
+		return false
+	}
+	req.Header.Set("Authorization", "Bearer "+tokenData.Token)
+	req.Header.Set("Accept", "application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.v2+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.oci.image.manifest.v1+json")
+
+	manifestResp, err := client.Do(req)
+	if err != nil {
+		return false
+	}
+	defer manifestResp.Body.Close()
+
+	return manifestResp.StatusCode == 200
 }
