@@ -335,7 +335,7 @@
                 + (vs === 'ok' ? '<div class="col-span-2 bg-emerald-500/10 border border-emerald-500/30 rounded-lg p-2"><div class="text-xs text-emerald-400">Image is up to date</div></div>' : '')
                 + (c.stale ? '<div class="col-span-2 bg-amber-500/10 border border-amber-500/30 rounded-lg p-2"><div class="text-xs text-amber-400">Update available</div>' + (c.current_version && c.latest_version && c.latest_version !== c.current_version ? '<div class="text-sm font-mono text-amber-300 mt-1">' + esc(c.current_version) + ' &#8594; ' + esc(c.latest_version) + '</div>' : c.latest_image ? '<div class="text-xs text-gray-400 mt-1 font-mono">' + esc(c.latest_image) + '</div>' : '') + (c.changelog_url ? '<a href="' + esc(c.changelog_url) + '" target="_blank" rel="noopener" class="text-xs text-dock-400 hover:text-dock-300 mt-1 inline-block" onclick="event.stopPropagation()">Release Notes &#8599;</a>' : '') + '</div>' : '')
                 + (c.checked_at ? '<div><div class="text-xs text-gray-500">Last Checked</div><div class="text-sm text-gray-300">' + new Date(c.checked_at).toLocaleString() + '</div></div>' : '')
-                + (c.previous_images && c.previous_images.length > 0 ? '<div class="col-span-2"><div class="text-xs text-gray-500 mb-1">Previous Images</div>' + c.previous_images.map(function(pi, idx) { var tag = pi.image.split(':').pop() || pi.image.split('/').pop(); var ts = pi.timestamp ? new Date(pi.timestamp).toLocaleString() : ''; return '<div class="flex items-center gap-2 text-sm font-mono text-amber-400 truncate" title="' + esc(pi.image) + ' (' + ts + ')">' + '<span class="truncate">' + esc(tag) + '</span>' + '<span class="text-gray-500 text-xs ml-auto shrink-0">' + ts + '</span></div>'; }).join('') + '</div>' : '')
+                + (c.previous_images && c.previous_images.length > 0 ? '<div class="col-span-2"><div class="text-xs text-gray-500 mb-1">Previous Images</div>' + c.previous_images.map(function(pi, idx) { var tag = pi.image.split(':').pop() || pi.image.split('/').pop(); var ts = pi.timestamp ? new Date(pi.timestamp).toLocaleString() : ''; return '<div class="flex items-center gap-2 text-sm font-mono text-amber-400 truncate" title="' + esc(pi.image) + ' (' + ts + ')">' + '<span class="truncate">' + esc(tag) + '</span>' + '<span class="text-gray-500 text-xs shrink-0">' + ts + '</span>' + '<button onclick="event.stopPropagation(); clearOldImage(\'' + n + '\', ' + idx + ')" class="text-xs text-gray-600 hover:text-red-400 shrink-0" title="Discard this image">&times;</button>' + '</div>'; }).join('') + '</div>' : '')
                 + (c.is_self ? '<div class="col-span-2 bg-blue-500/10 border border-blue-500/30 rounded-lg p-2"><div class="text-xs text-blue-400">This is Dockyard. Updating starts a replacement first, then stops this one.</div></div>' : '')
                 + '</div>'
                 + '<div class="flex items-center gap-3">'
@@ -369,7 +369,7 @@
                     }).join('')
                     + '</select>'
                     + '<button onclick="rollbackContainerVersion(\'' + n + '\')" class="bg-amber-600 hover:bg-amber-700 text-white px-2 py-1 rounded-lg text-xs font-medium">Rollback</button>'
-                    + '<button onclick="clearOldImage(\'' + n + '\', -1)" class="bg-gray-800 hover:bg-gray-700 text-gray-400 px-2 py-1 rounded-lg text-xs font-medium" title="Discard all old images">Discard</button>'
+                    + '<button onclick="clearOldImage(\'' + n + '\', -1)" class="bg-gray-800 hover:bg-red-900/50 text-gray-400 hover:text-red-400 px-2 py-1 rounded-lg text-xs font-medium" title="Discard all old images">Discard All</button>'
                     + '</div>'
                 ) : '')
                 + '</div>'
@@ -653,9 +653,6 @@
             fetch('/api/containers/' + name + '/update', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'}
-            }).then(function() {
-                if (!containerLogs[name]) containerLogs[name] = [];
-                expanded[name] = true;
             }).catch(function() { updating[name] = false; });
         };
 
