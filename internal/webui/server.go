@@ -670,7 +670,8 @@ func (s *Server) handleAPICheckUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	info, err := CheckForUpdate(s.version)
+	force := r.URL.Query().Get("force") == "true"
+	info, err := CheckForUpdateForce(s.version, force)
 	if err != nil {
 		s.writeError(w, err.Error(), 500)
 		return

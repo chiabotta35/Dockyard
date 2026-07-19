@@ -74,10 +74,14 @@ func versionLess(a, b []int) bool {
 }
 
 func CheckForUpdate(currentVersion string) (*UpdateInfo, error) {
+	return CheckForUpdateForce(currentVersion, false)
+}
+
+func CheckForUpdateForce(currentVersion string, force bool) (*UpdateInfo, error) {
 	updateCheckMu.Lock()
 	defer updateCheckMu.Unlock()
 
-	if time.Since(lastCheckTime) < 60*time.Second && lastUpdateCheck != nil {
+	if !force && time.Since(lastCheckTime) < 60*time.Second && lastUpdateCheck != nil {
 		return lastUpdateCheck, nil
 	}
 

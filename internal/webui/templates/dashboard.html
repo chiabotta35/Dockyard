@@ -1122,17 +1122,18 @@
         setInterval(refreshAutoCheckStatus, 15000);
         setInterval(renderAutoCheckBar, 1000);
 
-        // Also refresh after scan completes
+        // Also refresh after scan completes (force bypasses 60s cache)
         eventSource.addEventListener('scan_complete', function(e) {
             refreshAutoCheckStatus();
-            refreshSelfUpdate();
+            refreshSelfUpdate(true);
         });
 
         // Check for Dockyard self-updates
-        function refreshSelfUpdate() {
+        function refreshSelfUpdate(force) {
             var deferred = parseInt(localStorage.getItem('dockyard_defer_update') || '0', 10);
             if (deferred > Date.now()) return;
-            fetch('/api/update/check')
+            var url = '/api/update/check' + (force ? '?force=true' : '');
+            fetch(url)
                 .then(function(r) { return r.json(); })
                 .then(function(data) {
                     if (data.available) {
