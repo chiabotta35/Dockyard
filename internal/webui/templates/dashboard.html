@@ -1101,16 +1101,12 @@
             }
 
             var retentionMin = autoCheckData.image_retention_min || 0;
-            var hasOldImages = false;
-            containers.forEach(function(c) {
-                if (c.previous_images && c.previous_images.length > 0) hasOldImages = true;
-            });
-            if (retentionMin > 0 && hasOldImages) {
+            if (retentionMin > 0) {
                 if (autoCheckData.last_purge) {
                     var nextPurge = new Date(autoCheckData.last_purge).getTime() + 60000;
                     var remaining = Math.max(0, Math.round((nextPurge - Date.now()) / 1000));
                     if (remaining <= 0) {
-                        purgeEl.textContent = 'Purge cycle: due now';
+                        purgeEl.textContent = 'Purge cycle: running';
                     } else if (remaining < 60) {
                         purgeEl.textContent = 'Purge in ' + remaining + 's';
                     } else {
