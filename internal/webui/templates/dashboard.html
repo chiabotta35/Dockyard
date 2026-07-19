@@ -905,8 +905,6 @@
                     var overlay = document.getElementById('restart-overlay');
                     if (!overlay.classList.contains('hidden')) {
                         document.getElementById('restart-msg').innerHTML = 'Update complete!';
-                        document.getElementById('restart-countdown').textContent = '';
-                        document.getElementById('restart-progress-bar').style.width = '0%';
                         setTimeout(function() { overlay.classList.add('hidden'); }, 2000);
                     }
                     refreshContainers(true);
@@ -994,6 +992,11 @@
             var overlay = document.getElementById('restart-overlay');
             overlay.classList.remove('hidden');
         }
+
+        // Check if Dockyard is currently updating on page load.
+        fetch('/health').then(function(r) { return r.json(); }).then(function(data) {
+            if (data.is_updating) showRestartBanner();
+        }).catch(function() {});
 
         // Initial load
         refreshContainers();

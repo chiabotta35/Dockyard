@@ -693,6 +693,7 @@ func (s *Server) handleAPISelfRollback(w http.ResponseWriter, r *http.Request) {
 	for _, dc := range dockerContainers {
 		if string(dc.ID()) == s.selfContainerID {
 			s.events.BroadcastLog("dockyard", "Rolling back to: "+target.Image)
+			s.selfUpdating.Store(true)
 			go func() {
 				sessionID := s.state.StartSession("dockyard")
 				defer s.state.EndSession("dockyard")

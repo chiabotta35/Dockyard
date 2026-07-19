@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -46,6 +47,7 @@ type Server struct {
 	updatingMu      sync.Mutex
 	checkMu         sync.Mutex // prevents concurrent check operations
 	scheduleChanged  chan struct{} // signals the cron goroutine to re-evaluate
+	selfUpdating    atomic.Bool
 }
 
 type ContainerInfo struct {
@@ -375,7 +377,10 @@ func (s *Server) Start(ctx context.Context) error {
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"status":      "ok",
+			"is_updating": s.selfUpdating.Load(),
+		})
 	})
 	logrus.Debug("Registered /health endpoint")
 
@@ -708,6 +713,7 @@ func (s *Server) handleAPISelfUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.selfUpdating.Store(true)
 	go s.performContainerUpdate(selfName)
 
 	s.writeJSON(w, map[string]string{"status": "ok", "message": "update started", "container": selfName})
