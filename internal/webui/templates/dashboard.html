@@ -35,10 +35,7 @@
         <div class="text-center max-w-md mx-auto px-6">
             <div class="animate-spin w-12 h-12 border-4 border-dock-500 border-t-transparent rounded-full mx-auto mb-6"></div>
             <h2 class="text-xl font-bold mb-2">Updating Dockyard</h2>
-            <p class="text-gray-400 mb-4" id="restart-msg">Restarting in <span id="restart-countdown" class="text-white font-mono font-bold">10</span>s</p>
-            <div class="w-full h-2 bg-gray-800 rounded-full overflow-hidden">
-                <div id="restart-progress-bar" class="h-full bg-dock-500 rounded-full transition-all duration-1000" style="width: 100%"></div>
-            </div>
+            <p class="text-gray-400" id="restart-msg">Waiting for container to restart&hellip;</p>
             <p class="text-xs text-gray-600 mt-4">This page will reconnect automatically</p>
         </div>
     </div>
@@ -996,29 +993,6 @@
             restartBannerShown = true;
             var overlay = document.getElementById('restart-overlay');
             overlay.classList.remove('hidden');
-            var countdown = 10;
-            var el = document.getElementById('restart-countdown');
-            var bar = document.getElementById('restart-progress-bar');
-            el.textContent = countdown;
-            bar.style.width = '100%';
-            var timer = setInterval(function() {
-                countdown--;
-                if (countdown <= 0) {
-                    clearInterval(timer);
-                    el.textContent = '0';
-                    bar.style.width = '0%';
-                    document.getElementById('restart-msg').innerHTML = 'Restarting now&hellip;';
-                    // Safety: if SSE hasn't reconnected after 20s, force reload
-                    setTimeout(function() {
-                        if (overlay && !overlay.classList.contains('hidden')) {
-                            window.location.reload();
-                        }
-                    }, 20000);
-                    return;
-                }
-                el.textContent = countdown;
-                bar.style.width = (countdown / 10 * 100) + '%';
-            }, 1000);
         }
 
         // Initial load
