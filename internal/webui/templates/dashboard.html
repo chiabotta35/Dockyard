@@ -337,7 +337,7 @@
                 + (vs === 'ok' ? '<div class="col-span-2 bg-emerald-500/10 border border-emerald-500/30 rounded-lg p-2"><div class="text-xs text-emerald-400">Image is up to date</div></div>' : '')
                 + (c.stale ? '<div class="col-span-2 bg-amber-500/10 border border-amber-500/30 rounded-lg p-2"><div class="text-xs text-amber-400">Update available</div>' + (c.current_version && c.latest_version && c.latest_version !== c.current_version ? '<div class="text-sm font-mono text-amber-300 mt-1">' + esc(c.current_version) + ' &#8594; ' + esc(c.latest_version) + '</div>' : c.latest_image ? '<div class="text-xs text-gray-400 mt-1 font-mono">' + esc(c.latest_image) + '</div>' : '') + (c.changelog_url ? '<a href="' + esc(c.changelog_url) + '" target="_blank" rel="noopener" class="text-xs text-dock-400 hover:text-dock-300 mt-1 inline-block" onclick="event.stopPropagation()">Release Notes &#8599;</a>' : '') + '</div>' : '')
                 + (c.checked_at ? '<div><div class="text-xs text-gray-500">Last Checked</div><div class="text-sm text-gray-300">' + new Date(c.checked_at).toLocaleString() + '</div></div>' : '')
-                + (c.previous_images && c.previous_images.length > 0 ? '<div class="col-span-2"><div class="text-xs text-gray-500">Previous Images</div>' + c.previous_images.map(function(pi) { return '<div class="text-sm font-mono text-amber-400 truncate" title="' + esc(pi.image) + ' (' + (pi.timestamp ? new Date(pi.timestamp).toLocaleString() : '') + ')">' + esc(pi.image.length > 60 ? pi.image.substring(0, 57) + '...' : pi.image) + '</div>'; }).join('') + '</div>' : '')
+                + (c.previous_images && c.previous_images.length > 0 ? '<div class="col-span-2"><div class="text-xs text-gray-500">Previous Images</div>' + c.previous_images.map(function(pi) { var tag = pi.image.split(':').pop() || pi.image.split('/').pop(); var ts = pi.timestamp ? new Date(pi.timestamp).toLocaleString() : ''; return '<div class="text-sm font-mono text-amber-400 truncate" title="' + esc(pi.image) + ' (' + ts + ')">' + esc(tag) + '<span class="text-gray-500 text-xs ml-2">' + ts + '</span></div>'; }).join('') + '</div>' : '')
                 + (c.is_self ? '<div class="col-span-2 bg-blue-500/10 border border-blue-500/30 rounded-lg p-2"><div class="text-xs text-blue-400">This is Dockyard. Updating starts a replacement first, then stops this one.</div></div>' : '')
                 + '</div>'
                 + '<div class="flex items-center gap-3">'
@@ -365,8 +365,9 @@
                     '<div class="flex items-center gap-2 mt-2">'
                     + '<select id="rollback-sel-' + n + '" class="bg-gray-800 border border-gray-700 text-gray-300 text-xs rounded-lg px-2 py-1 flex-1" title="Select version to rollback">'
                     + c.previous_images.map(function(pi, idx) {
-                        var imgShort = esc(pi.image.length > 50 ? pi.image.substring(0, 47) + '...' : pi.image);
-                        return '<option value="' + idx + '">' + imgShort + '</option>';
+                        var tag = pi.image.split(':').pop() || pi.image.split('/').pop();
+                        var ts = pi.timestamp ? new Date(pi.timestamp).toLocaleString() : 'unknown';
+                        return '<option value="' + idx + '">' + tag + ' (' + ts + ')</option>';
                     }).join('')
                     + '</select>'
                     + '<button onclick="rollbackContainerVersion(\'' + n + '\')" class="bg-amber-600 hover:bg-amber-700 text-white px-2 py-1 rounded-lg text-xs font-medium">Rollback</button>'
