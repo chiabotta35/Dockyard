@@ -60,7 +60,7 @@
         </div>
     </nav>
 
-    <div id="self-update-banner" class="hidden sticky top-14 z-40 bg-amber-500/10 border-b border-amber-500/30">
+    <div id="self-update-banner" class="hidden sticky top-14 z-40 bg-amber-500/20 backdrop-blur-md border-b border-amber-500/30">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3">
             <div class="flex items-center justify-between">
                 <div class="flex items-center gap-3">
@@ -71,7 +71,7 @@
                     </div>
                 </div>
                 <div class="flex items-center gap-2">
-                    <button onclick="deferSelfUpdate()" class="text-xs bg-amber-500/20 hover:bg-amber-500/30 text-amber-400 px-2 py-1 rounded">Defer</button>
+                    <button onclick="deferSelfUpdate()" class="bg-amber-500/20 hover:bg-amber-500/30 text-amber-400 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors">Defer</button>
                     <button onclick="selfUpdate()" id="banner-update-btn" class="bg-amber-500 hover:bg-amber-600 text-gray-900 px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors">Update Now</button>
                 </div>
             </div>
