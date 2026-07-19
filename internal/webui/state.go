@@ -455,7 +455,7 @@ func (s *State) PurgeExpiredImages() []ExpiredImage {
 			}
 		}
 		if len(kept) != len(cs.PreviousImages) {
-			cs.PreviousImages = kept
+			s.Containers[name].PreviousImages = kept
 		}
 	}
 	if len(removed) > 0 {

@@ -994,7 +994,7 @@ func (s *Server) sendCheckNotification(updates, errors, upToDate, total int, det
 		msgParts = append(msgParts, "\u2705 All containers up to date")
 	}
 
-	msgParts = append(msgParts, fmt.Sprintf("Dockyard v%s", s.version))
+	msgParts = append(msgParts, fmt.Sprintf("Dockyard %s", s.version))
 
 	msg := strings.Join(msgParts, "\n")
 
@@ -1409,9 +1409,9 @@ func (s *Server) purgeExpiredImages() {
 	ctx := context.Background()
 	removed := s.state.PurgeExpiredImages()
 	for _, ri := range removed {
-		s.events.BroadcastLog(ri.Name, "Auto-purging old image: "+ri.Image)
+		s.events.BroadcastLog(ri.Name, "Auto-purged old image: "+ri.Image)
 		if err := s.client.RemoveImageByID(ctx, types.ImageID(ri.ImageID), ri.Image); err != nil {
-			s.events.BroadcastLog(ri.Name, "Failed to auto-purge: "+err.Error())
+			s.events.BroadcastLog(ri.Name, "Failed to remove old image: "+err.Error())
 		}
 	}
 }
