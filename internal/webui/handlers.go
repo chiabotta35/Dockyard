@@ -1482,12 +1482,14 @@ func (s *Server) handleAPICheckStatus(w http.ResponseWriter, r *http.Request) {
 	s.autoCheckMu.RUnlock()
 
 	schedule := s.state.GetSettings().Schedule
+	retentionMin := s.state.GetSettings().ImageRetentionHrs
 
 	resp := map[string]interface{}{
-		"last_check":  nil,
-		"next_check":  nil,
-		"schedule":    schedule,
-		"interval_ms": 0,
+		"last_check":         nil,
+		"next_check":         nil,
+		"schedule":           schedule,
+		"interval_ms":        0,
+		"image_retention_min": retentionMin,
 	}
 
 	if !lastCheck.IsZero() {
