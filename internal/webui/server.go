@@ -754,12 +754,6 @@ func (s *Server) buildContainerList(containers []types.Container) []ContainerInf
 				}
 			}()
 
-			// Hide the self container — it's managed via the self-update button,
-			// not the regular container list.
-			if s.selfContainerID != "" && string(c.ID()) == s.selfContainerID {
-				return
-			}
-
 			name := c.Name()
 			cs := s.state.GetContainerState(name)
 
