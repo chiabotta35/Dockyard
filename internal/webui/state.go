@@ -56,6 +56,7 @@ type Settings struct {
 	LifecycleHooks    bool   `json:"lifecycle_hooks"`
 	NotificationURL   string `json:"notification_url"`
 	UpdateOnStart     bool   `json:"update_on_start"`
+	ImageRetentionHrs int    `json:"image_retention_hrs"`
 }
 
 type HistoryEntry struct {
@@ -306,6 +307,13 @@ func (s *State) getSettingsLocked() Settings {
 	return s.Settings
 }
 
+func (set Settings) ImageRetentionHours() time.Duration {
+	if set.ImageRetentionHrs <= 0 {
+		return 0
+	}
+	return time.Duration(set.ImageRetentionHrs) * time.Minute
+}
+
 func (s *State) AddHistory(entry HistoryEntry) error {
 	s.mu.Lock()
 	s.History = append([]HistoryEntry{entry}, s.History...)
@@ -427,6 +435,56 @@ func (s *State) RemovePreviousImage(name string, index int) error {
 	}
 	s.mu.Unlock()
 	return s.save()
+}
+
+func (s *State) GetImageRetention() time.Duration {
+	s.mu.RLock()
+	hours := s.Settings.ImageRetentionHrs
+	s.mu.RUnlock()
+	if hours <= 0 {
+		return 0
+	}
+	return time.Duration(hours) * time.Minute
+}
+
+// PurgeExpiredImages removes previous images older than the retention window.
+// Returns a list of {name, image} entries that were removed.
+func (s *State) PurgeExpiredImages() []ExpiredImage {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	retention := s.getSettingsLocked().ImageRetentionHours()
+	if retention <= 0 {
+		return nil
+	}
+	cutoff := time.Now().Add(-retention)
+	var removed []ExpiredImage
+	for name, cs := range s.Containers {
+		if len(cs.PreviousImages) == 0 {
+			continue
+		}
+		var kept []PreviousImageEntry
+		for _, pi := range cs.PreviousImages {
+			if pi.Timestamp.Before(cutoff) {
+				removed = append(removed, ExpiredImage{Name: name, ImageID: pi.ImageID, Image: pi.Image, SavedAt: pi.Timestamp})
+			} else {
+				kept = append(kept, pi)
+			}
+		}
+		if len(kept) != len(cs.PreviousImages) {
+			cs.PreviousImages = kept
+		}
+	}
+	if len(removed) > 0 {
+		s.save()
+	}
+	return removed
+}
+
+type ExpiredImage struct {
+	Name    string
+	ImageID string
+	Image   string
+	SavedAt time.Time
 }
 
 func (s *State) SaveCheckResult(name string, isStale bool, checkErr string, latestImage string) error {

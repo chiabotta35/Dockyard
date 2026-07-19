@@ -408,6 +408,7 @@ func (s *Server) Start(ctx context.Context) error {
 	protected.HandleFunc("/api/events", s.handleSSE)
 	protected.HandleFunc("/api/update/check", s.handleAPICheckUpdate)
 	protected.HandleFunc("/api/update/self", s.handleAPISelfUpdate)
+	protected.HandleFunc("/api/purge-old-images", s.handleAPIPurgeOldImages)
 	protected.HandleFunc("/api/notifications/test", s.handleAPITestNotification)
 	protected.HandleFunc("/api/logs", s.handleAPILogs)
 	protected.HandleFunc("/api/auto-check-status", s.handleAPICheckStatus)
@@ -529,6 +530,21 @@ func (s *Server) Start(ctx context.Context) error {
 	}()
 
 	logrus.WithField("addr", s.addr).Info("Dockyard web UI starting")
+
+	// Background goroutine: purge expired old images based on retention setting.
+	go func() {
+		time.Sleep(30 * time.Second)
+		ticker := time.NewTicker(60 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				s.purgeExpiredImages()
+			}
+		}
+	}()
 
 	// Auto-check on startup after a short delay (gives containers time to register).
 	go func() {

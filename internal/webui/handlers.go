@@ -582,6 +582,24 @@ func (s *Server) handleRollbackContainer(w http.ResponseWriter, r *http.Request,
 	s.writeJSON(w, map[string]string{"status": "ok", "message": "rollback started", "target_image": prevImage})
 }
 
+func (s *Server) handleAPIPurgeOldImages(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		s.writeError(w, "method not allowed", 405)
+		return
+	}
+	ctx := context.Background()
+	removed := s.state.PurgeExpiredImages()
+	var errors []string
+	for _, ri := range removed {
+		s.BroadcastLog(ri.Name, "Auto-purging old image: "+ri.Image)
+		if err := s.client.RemoveImageByID(ctx, types.ImageID(ri.ImageID), ri.Image); err != nil {
+			s.BroadcastLog(ri.Name, "Failed to remove: "+err.Error())
+			errors = append(errors, err.Error())
+		}
+	}
+	s.writeJSON(w, map[string]interface{}{"purged": len(removed), "errors": errors})
+}
+
 func (s *Server) handleClearOldImage(w http.ResponseWriter, r *http.Request, name string) {
 	if r.Method != http.MethodPost {
 		s.writeError(w, "method not allowed", 405)
@@ -739,6 +757,9 @@ func (s *Server) handleAPISettings(w http.ResponseWriter, r *http.Request) {
 		}
 		if settings.BackupWindowHours < 1 || settings.BackupWindowHours > 720 {
 			settings.BackupWindowHours = 24
+		}
+		if settings.ImageRetentionHrs < 0 || settings.ImageRetentionHrs > 10080 {
+			settings.ImageRetentionHrs = 1440
 		}
 
 		// Capture old schedule/tz to detect changes.
@@ -1419,6 +1440,17 @@ func (s *Server) BroadcastLog(container, message string) {
 
 func (s *Server) BroadcastUpdate(container, status string) {
 	s.events.BroadcastUpdate(container, status)
+}
+
+func (s *Server) purgeExpiredImages() {
+	ctx := context.Background()
+	removed := s.state.PurgeExpiredImages()
+	for _, ri := range removed {
+		s.events.BroadcastLog(ri.Name, "Auto-purging old image: "+ri.Image)
+		if err := s.client.RemoveImageByID(ctx, types.ImageID(ri.ImageID), ri.Image); err != nil {
+			s.events.BroadcastLog(ri.Name, "Failed to auto-purge: "+err.Error())
+		}
+	}
 }
 
 // handleAPILogs returns persisted log entries filtered by container, session, or date range.
