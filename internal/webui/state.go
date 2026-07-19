@@ -382,6 +382,12 @@ func (s *State) SavePreviousImage(name, image, imageID string) error {
 		cs = &ContainerState{UpdateMode: ModeManual}
 		s.Containers[name] = cs
 	}
+	for _, pi := range cs.PreviousImages {
+		if pi.ImageID == imageID {
+			s.mu.Unlock()
+			return nil
+		}
+	}
 	cs.PreviousImages = append([]PreviousImageEntry{{
 		Image:     image,
 		ImageID:   imageID,

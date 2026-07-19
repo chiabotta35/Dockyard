@@ -329,9 +329,6 @@ func (s *Server) performContainerUpdate(name string) {
 	imageName := target.ImageName()
 	s.events.BroadcastLog(name, "Image: "+imageName)
 
-	// Save current image for rollback before updating
-	s.state.SavePreviousImage(name, imageName, string(target.ImageID()))
-
 	if !target.IsRunning() {
 		s.events.BroadcastLog(name, "Container is not running")
 		s.events.Broadcast(Event{Type: EventUpdateFailed, Container: name, Message: "Not running"})
@@ -1449,7 +1446,12 @@ func (s *Server) BroadcastUpdate(container, status string) {
 func (s *Server) purgeExpiredImages() {
 	ctx := context.Background()
 	removed := s.state.PurgeExpiredImages()
+	seen := make(map[string]bool, len(removed))
 	for _, ri := range removed {
+		if seen[ri.ImageID] {
+			continue
+		}
+		seen[ri.ImageID] = true
 		s.events.BroadcastLog(ri.Name, "Auto-purged old image: "+ri.Image)
 		if err := s.client.RemoveImageByID(ctx, types.ImageID(ri.ImageID), ri.Image); err != nil {
 			s.events.BroadcastLog(ri.Name, "Failed to remove old image: "+err.Error())
